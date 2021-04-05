@@ -7,6 +7,9 @@
 #include <neutrino_transport_buffered_mt.hpp>
 #include <neutrino_transport_buffered_st.hpp>
 
+using namespace neutrino::impl;
+/*
+
 namespace
 {
     const uint64_t checkpoint_id_1 = 1;
@@ -158,8 +161,8 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
     {
         SCOPED_TRACE(__FUNCTION__);
 
-        validate_transaction_singlethread<transport::frame_v00::known_encodings_t::BINARY_NATIVE>(ep_factory);
-        validate_transaction_singlethread<transport::frame_v00::known_encodings_t::BINARY_NETWORK>(ep_factory);
+        validate_transaction_singlethread<transport::frame_v00::known_encodings_t::BINARY_NATIVE>(f);
+        validate_transaction_singlethread<transport::frame_v00::known_encodings_t::BINARY_NETWORK>(f);
         //validate_transaction_singlethread<transport::frame_v00::known_encodings_t::JSON>(ep_factory);
     }
 };
@@ -202,3 +205,4 @@ TEST_F(neutrino_general_with_transport_workflow_tests, transaction_singlethread)
         }
     }
 }
+*/

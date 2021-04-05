@@ -16,11 +16,14 @@ Other components will follow soon.
 
 ---
 
+## Dependency
+GTest via VCPKG
+
 ## Status at 2021/04/05 03:46:PM
 does not compile due to UT changes
 
 ## TODO:
-
+* legwork CMake x64
 * DOXYGEN
 * implement NETWORK byte order serializer
 * implement JSON byte order serializer
