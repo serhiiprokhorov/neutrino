@@ -1,2 +1,2 @@
 # neutrino
-neutrino project (process monitoring)
+neutrino project (exercise in process monitoring)
