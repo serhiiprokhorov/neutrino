@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <map>
 #include "neutrino_transport.hpp"
 #include "neutrino_producer.hpp"
 #include "neutrino_frames_local.hpp"
@@ -65,7 +66,7 @@ namespace neutrino
 
         struct consumer_t : public impl::transport::consumer_t
         {
-            std::size_t m_expected_frame_cc = 0;
+            std::map<neutrino::impl::local::payload::stream_id_t::type_t, std::size_t> m_expected_frame_cc;
             std::size_t m_actual_frame_cc = 0;
 
             std::list<
@@ -91,29 +92,33 @@ namespace neutrino
 
             auto& expect_checkpoint(neutrino::impl::local::payload::nanoepoch_t::type_t nanoepoch, neutrino::impl::local::payload::stream_id_t::type_t stream_id, neutrino::impl::local::payload::event_id_t::type_t event_id)
             {
-                m_expected_checkpoints.emplace_back(m_expected_frame_cc, nanoepoch, stream_id, event_id);
-                m_expected_frame_cc++;
+                auto& cc = m_expected_frame_cc[stream_id];
+                m_expected_checkpoints.emplace_back(cc, nanoepoch, stream_id, event_id);
+                cc++;
                 return *this;
             }
 
             auto& expect_context_enter(neutrino::impl::local::payload::nanoepoch_t::type_t nanoepoch, neutrino::impl::local::payload::stream_id_t::type_t stream_id, neutrino::impl::local::payload::event_id_t::type_t event_id)
             {
-                m_expected_contexts.emplace_back(m_expected_frame_cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_ENTER);
-                m_expected_frame_cc++;
+                auto& cc = m_expected_frame_cc[stream_id];
+                m_expected_contexts.emplace_back(cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_ENTER);
+                cc++;
                 return *this;
             }
 
             auto& expect_context_leave(neutrino::impl::local::payload::nanoepoch_t::type_t nanoepoch, neutrino::impl::local::payload::stream_id_t::type_t stream_id, neutrino::impl::local::payload::event_id_t::type_t event_id)
             {
-                m_expected_contexts.emplace_back(m_expected_frame_cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_LEAVE);
-                m_expected_frame_cc++;
+                auto& cc = m_expected_frame_cc[stream_id];
+                m_expected_contexts.emplace_back(cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_LEAVE);
+                cc++;
                 return *this;
             }
 
             auto& expect_context_panic(neutrino::impl::local::payload::nanoepoch_t::type_t nanoepoch, neutrino::impl::local::payload::stream_id_t::type_t stream_id, neutrino::impl::local::payload::event_id_t::type_t event_id)
             {
-                m_expected_contexts.emplace_back(m_expected_frame_cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_PANIC);
-                m_expected_frame_cc++;
+                auto& cc = m_expected_frame_cc[stream_id];
+                m_expected_contexts.emplace_back(cc, nanoepoch, stream_id, event_id, neutrino::impl::local::payload::event_type_t::event_types::CONTEXT_PANIC);
+                cc++;
                 return *this;
             }
 
@@ -143,9 +148,9 @@ namespace neutrino
 
                     //TODO: implement m_actual_frame_cc by stream
                     //throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(*expected));
-                    std::get<1>(*expected) && throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(*expected));
-                    throw_if_mismatch("stream_id", stream_id, std::get<2>(*expected));
-                    throw_if_mismatch("event_id", event_id, std::get<3>(*expected)); // event id
+                    std::get<1>(*expected) && throw_if_mismatch("checkpoint nanoepoch", nanoepoch, std::get<1>(*expected));
+                    throw_if_mismatch("checkpoint stream_id", stream_id, std::get<2>(*expected));
+                    throw_if_mismatch("checkpoint event_id", event_id, std::get<3>(*expected)); // event id
 
                     m_actual_checkpoints.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id);
 
@@ -176,10 +181,10 @@ namespace neutrino
 
                     //TODO: implement m_actual_frame_cc by stream
                     //throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(*expected));
-                    std::get<1>(*expected) && throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(*expected));
-                    throw_if_mismatch("stream_id", stream_id, std::get<2>(*expected));
-                    throw_if_mismatch("event_id", event_id, std::get<3>(*expected));
-                    throw_if_mismatch("event_type", event_type, std::get<4>(*expected));
+                    std::get<1>(*expected) && throw_if_mismatch("context nanoepoch", nanoepoch, std::get<1>(*expected));
+                    throw_if_mismatch("context stream_id", stream_id, std::get<2>(*expected));
+                    throw_if_mismatch("context event_id", event_id, std::get<3>(*expected));
+                    throw_if_mismatch("context event_type", event_type, std::get<4>(*expected));
 
                     m_actual_contexts.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id, event_type);
 

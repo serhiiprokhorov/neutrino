@@ -132,9 +132,6 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
 
     void TearDown() final
     {
-        ASSERT_TRUE(m_mock_consumer.get());
-        ASSERT_TRUE(m_mock_consumer->m_expected_checkpoints.empty());
-        ASSERT_TRUE(m_mock_consumer->m_expected_contexts.empty());
         m_mock_consumer.reset();
     }
 
@@ -164,6 +161,9 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
             ADD_FAILURE() << e.what();
         }
 
+        ASSERT_TRUE(m_mock_consumer.get());
+        ASSERT_TRUE(m_mock_consumer->m_expected_checkpoints.empty());
+        ASSERT_TRUE(m_mock_consumer->m_expected_contexts.empty());
     }
 
     void validate_transaction_singlethread_transport_options(std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t>)>f)

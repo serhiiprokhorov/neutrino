@@ -103,7 +103,7 @@ namespace
                 pFrameStart = pFrameEnd;
             }
             // TODO: notify not consumed bytes
-            return (pFrameStart - pBuf) == b;
+            return (pFrameStart - pBuf - 1/*compensate for(...pFrameStart++)*/) == b;
         };
     };
 
