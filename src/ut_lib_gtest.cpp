@@ -8,7 +8,6 @@
 #include <neutrino_transport_buffered_st.hpp>
 
 using namespace neutrino::impl;
-/*
 
 namespace
 {
@@ -85,13 +84,16 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
         neutrino_checkpoint(neutrino_nanoepoch(), stream_id, checkpoint_id_4);
     }
 
-    template <typename buffered_endpoint_factory_t, transport::frame_v00::known_encodings_t transport_encoding>
+    typedef std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t>)> buffered_endpoint_factory_t;
+
+    template <transport::frame_v00::known_encodings_t transport_encoding>
     struct channel_t
     {
+        std::shared_ptr<transport::endpoint_impl_t> m_endpoint_impl;
+
         std::shared_ptr<transport::endpoint_t> m_endpoint;
 
         std::shared_ptr<neutrino::mock::connection_t<neutrino::impl::transport::endpoint_impl_t>> m_connection;
-        std::shared_ptr<transport::endpoint_impl_t> m_endpoint_impl;
         std::shared_ptr<transport::consumer_stub_t> m_consumer_stub;
 
         std::shared_ptr<neutrino::impl::transport::consumer_stub_t> m_prev_consumer;
@@ -99,17 +101,16 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
         channel_t(buffered_endpoint_factory_t buffered_endpoint_factory, neutrino::mock::consumer_t& consumer)
         {
             // deserialises from raw and forwards frames to consumer
-            m_endpoint_impl = transport::frame_v00::create_endpoint_impl(
-                transport_encoding, consumer);
+            m_endpoint_impl = transport::frame_v00::create_endpoint_impl(transport_encoding, consumer);
 
             // collects raw frames and forwards to endpoint impl
             m_connection.reset(new neutrino::mock::connection_t<neutrino::impl::transport::endpoint_impl_t>(*m_endpoint_impl));
 
-            m_endpoint = buffered_endpoint_factory(*m_connection);
+            m_endpoint = buffered_endpoint_factory(m_connection);
 
             // serializes frames to raw and forwards to endpoint
             m_consumer_stub = transport::frame_v00::create_consumer_stub(
-                transport_encoding, m_endpoint);
+                transport_encoding, *m_endpoint);
 
             // istall consumer, API will call it
             m_prev_consumer = producer::set_consumer(m_consumer_stub);
@@ -138,7 +139,7 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
     }
 
     template <transport::frame_v00::known_encodings_t transport_encoding>
-    void validate_transaction_singlethread(std::function<std::shared_ptr<transport::endpoint_t>(transport::endpoint_t&)>f)
+    void validate_transaction_singlethread(std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t> endpoint)>f)
     {
         SCOPED_TRACE(__FUNCTION__);
         m_mock_consumer->
@@ -154,10 +155,18 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
 
         channel_t<transport_encoding> channel(f, *m_mock_consumer);
 
-        ASSERT_NO_THROW(run_transaction(stream_id_1));
+        try
+        {
+            run_transaction(stream_id_1);
+        }
+        catch(const std::exception& e)
+        {
+            ADD_FAILURE() << e.what();
+        }
+
     }
 
-    void validate_transaction_singlethread_transport_options(std::function<std::shared_ptr<transport::endpoint_t>(transport::endpoint_t&)>f)
+    void validate_transaction_singlethread_transport_options(std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t>)>f)
     {
         SCOPED_TRACE(__FUNCTION__);
 
@@ -175,18 +184,18 @@ TEST_F(neutrino_general_with_transport_workflow_tests, transaction_singlethread)
         {
             SCOPED_TRACE("buffered_singlethread_endpoint_t");
             validate_transaction_singlethread_transport_options(
-                [po](auto& chained_endpoint)
+                [po](std::shared_ptr<transport::endpoint_t> chained_endpoint)
                 {
-                    return std::shared_ptr<transport::endpoint_t>(new transport::buffered_singlethread_endpoint_t(chained_endpoint, po));
+                    return std::shared_ptr<transport::endpoint_t>(new transport::buffered_singlethread_endpoint_t(chained_endpoint, po.m_params));
                 }
             );
         }
         {
             SCOPED_TRACE("buffered_exclusive_endpoint_t");
             validate_transaction_singlethread_transport_options(
-                [po](auto& chained_endpoint)
+                [po](std::shared_ptr<transport::endpoint_t> chained_endpoint)
                 {
-                    return std::shared_ptr<transport::endpoint_t>(new transport::buffered_exclusive_endpoint_t(chained_endpoint, po));
+                    return std::shared_ptr<transport::endpoint_t>(new transport::buffered_exclusive_endpoint_t(chained_endpoint, po.m_params));
                 }
             );
         }
@@ -196,13 +205,12 @@ TEST_F(neutrino_general_with_transport_workflow_tests, transaction_singlethread)
             {
                 SCOPED_TRACE(opo.m_name);
                 validate_transaction_singlethread_transport_options(
-                    [opo, po](auto& chained_endpoint)
+                    [opo, po](std::shared_ptr<transport::endpoint_t> chained_endpoint)
                     {
-                        return std::shared_ptr<transport::endpoint_t>(new transport::buffered_optimistic_endpoint_t(chained_endpoint, opo, po));
+                        return std::shared_ptr<transport::endpoint_t>(new transport::buffered_optimistic_endpoint_t(chained_endpoint, po.m_params, opo.m_params));
                     }
                 );
             }
         }
     }
 }
-*/

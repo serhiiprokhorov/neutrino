@@ -68,7 +68,7 @@ namespace neutrino
             std::size_t m_expected_frame_cc = 0;
             std::size_t m_actual_frame_cc = 0;
 
-            std::deque<
+            std::list<
                 std::tuple<
                     std::size_t
                     , neutrino::impl::local::payload::nanoepoch_t::type_t
@@ -76,7 +76,7 @@ namespace neutrino
                     , neutrino::impl::local::payload::event_id_t::type_t
                 >
             > m_expected_checkpoints;
-            std::deque<
+            std::list<
                 std::tuple<
                     std::size_t
                     , neutrino::impl::local::payload::nanoepoch_t::type_t
@@ -118,7 +118,7 @@ namespace neutrino
             }
 
             template <typename tt>
-            void throw_if_mismatch(const char* nm, tt actual, tt expected)
+            bool throw_if_mismatch(const char* nm, tt actual, tt expected)
             {
                 if (actual != expected)
                     throw std::runtime_error(
@@ -126,19 +126,8 @@ namespace neutrino
                     .append(" actual=").append(std::to_string(actual))
                     .append(" expected=").append(std::to_string(expected))
                 );
+                return true;
             }
-            /*
-            template <>
-            void throw_if_mismatch<local::payload::event_type_t::event_types>(const char* nm, local::payload::event_type_t::event_types actual, local::payload::event_type_t::event_types expected)
-            {
-                if (actual != expected)
-                    throw std::runtime_error(
-                        std::string(nm)
-                        .append(" actual=").append(std::to_string(actual))
-                        .append(" expected=").append(std::to_string(expected))
-                    );
-            }
-            */
 
             void consume_checkpoint(
                 const neutrino::impl::local::payload::nanoepoch_t::type_t& nanoepoch
@@ -146,17 +135,30 @@ namespace neutrino
                 , const neutrino::impl::local::payload::event_id_t::type_t& event_id
             ) override
             {
-                const auto& expected = m_expected_checkpoints.front();
+                // lookup first expected element by stream id
+                for(auto expected = m_expected_checkpoints.begin(); expected != m_expected_checkpoints.end(); expected++)
+                {
+                    if(std::get<2>(*expected) != stream_id)
+                        continue;
 
-                throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(expected));
-                throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(expected));
-                throw_if_mismatch("stream_id", stream_id, std::get<2>(expected));
-                throw_if_mismatch("event_id", event_id, std::get<3>(expected)); // event id
+                    //TODO: implement m_actual_frame_cc by stream
+                    //throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(*expected));
+                    std::get<1>(*expected) && throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(*expected));
+                    throw_if_mismatch("stream_id", stream_id, std::get<2>(*expected));
+                    throw_if_mismatch("event_id", event_id, std::get<3>(*expected)); // event id
 
-                m_actual_checkpoints.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id);
+                    m_actual_checkpoints.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id);
 
-                m_actual_frame_cc++;
-                m_expected_checkpoints.pop_front();
+                    m_actual_frame_cc++;
+                    m_expected_checkpoints.erase(expected);
+
+                    return;
+                }
+                throw std::runtime_error(
+                    std::string(__FUNCTION__)
+                    .append(" not expected stream_id=").append(std::to_string(stream_id))
+                    .append(" event_id=").append(std::to_string(event_id))
+                );
             }
 
             virtual void consume_context(
@@ -166,18 +168,31 @@ namespace neutrino
                 , const neutrino::impl::local::payload::event_type_t::event_types& event_type
             ) override
             {
-                const auto& expected = m_expected_contexts.front();
+                // lookup first expected element by stream id
+                for (auto expected = m_expected_contexts.begin(); expected != m_expected_contexts.end(); expected++)
+                {
+                    if (std::get<2>(*expected) != stream_id)
+                        continue;
 
-                throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(expected));
-                throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(expected));
-                throw_if_mismatch("stream_id", stream_id, std::get<2>(expected));
-                throw_if_mismatch("event_id", event_id, std::get<3>(expected));
-                throw_if_mismatch("event_type", event_type, std::get<4>(expected));
+                    //TODO: implement m_actual_frame_cc by stream
+                    //throw_if_mismatch("frame counter", m_actual_frame_cc, std::get<0>(*expected));
+                    std::get<1>(*expected) && throw_if_mismatch("nanoepoch", nanoepoch, std::get<1>(*expected));
+                    throw_if_mismatch("stream_id", stream_id, std::get<2>(*expected));
+                    throw_if_mismatch("event_id", event_id, std::get<3>(*expected));
+                    throw_if_mismatch("event_type", event_type, std::get<4>(*expected));
 
-                m_actual_contexts.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id, event_type);
+                    m_actual_contexts.emplace_back(m_actual_frame_cc, nanoepoch, stream_id, event_id, event_type);
 
-                m_actual_frame_cc++;
-                m_expected_contexts.pop_front();
+                    m_actual_frame_cc++;
+                    m_expected_contexts.erase(expected);
+
+                    return;
+                }
+                throw std::runtime_error(
+                    std::string(__FUNCTION__)
+                    .append(" not expected stream_id=").append(std::to_string(stream_id))
+                    .append(" event_id=").append(std::to_string(event_id))
+                );
             }
         };
         struct scoped_guard

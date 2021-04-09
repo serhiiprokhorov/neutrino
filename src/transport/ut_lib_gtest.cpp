@@ -181,7 +181,7 @@ struct neutrino_buffered_endpoints_tests : public ::testing::Test
         {
             SCOPED_TRACE(po.m_name);
             auto e{f(po)};
-            run_parameters_t p{ e.get(), 100000 / cc_threads };
+            run_parameters_t p{ e.get(), 10000 / cc_threads };
 
             std::mutex m;
             std::condition_variable v;
