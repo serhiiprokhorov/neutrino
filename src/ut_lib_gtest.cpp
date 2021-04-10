@@ -127,18 +127,18 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
 
     void SetUp() final
     {
-        m_mock_consumer.reset(new neutrino::mock::consumer_t());
     }
 
     void TearDown() final
     {
-        m_mock_consumer.reset();
     }
 
     template <transport::frame_v00::known_encodings_t transport_encoding>
     void validate_transaction_singlethread(std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t> endpoint)>f)
     {
         SCOPED_TRACE(__FUNCTION__);
+        // events sequence corresponds to run_transaction impl
+        m_mock_consumer.reset(new neutrino::mock::consumer_t());
         m_mock_consumer->
             expect_checkpoint(0, stream_id_1, checkpoint_id_1)
             .expect_context_enter(0, stream_id_1, context_id_1)
@@ -155,15 +155,18 @@ struct neutrino_general_with_transport_workflow_tests : public ::testing::Test
         try
         {
             run_transaction(stream_id_1);
+
+            // expect flush at the very end of simulated app operations 
+            neutrino_flush();
         }
         catch(const std::exception& e)
         {
             ADD_FAILURE() << e.what();
         }
 
-        ASSERT_TRUE(m_mock_consumer.get());
-        ASSERT_TRUE(m_mock_consumer->m_expected_checkpoints.empty());
-        ASSERT_TRUE(m_mock_consumer->m_expected_contexts.empty());
+        ASSERT_EQ(std::size_t{0}, m_mock_consumer->m_expected_checkpoints.size());
+        ASSERT_EQ(std::size_t{0}, m_mock_consumer->m_expected_contexts.size());
+        m_mock_consumer.reset();
     }
 
     void validate_transaction_singlethread_transport_options(std::function<std::shared_ptr<transport::endpoint_t>(std::shared_ptr<transport::endpoint_t>)>f)

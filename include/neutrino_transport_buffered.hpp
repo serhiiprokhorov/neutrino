@@ -35,13 +35,6 @@ namespace neutrino
                     m_endpoint = m_endpoint_sp.get();
                 }
 
-            protected:
-                // no public access to flush logic, addes unnecessary complexity on threadsafety
-                virtual bool flush()
-                {
-                    return false;
-                }
-
             };
         }
     }

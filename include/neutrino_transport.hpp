@@ -14,6 +14,7 @@ namespace neutrino
                 virtual ~endpoint_t() = default;
 
                 virtual bool consume(const uint8_t*, const uint8_t*) { return false; };
+                virtual bool flush() { return false; };
             };
 
             struct consumer_t

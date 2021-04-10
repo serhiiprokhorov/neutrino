@@ -33,4 +33,9 @@ void neutrino_context_panic(const uint64_t nanoepoch, const uint64_t stream_id, 
     producer::get_consumer()->consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_PANIC);
 }
 
+void neutrino_flush()
+{
+    producer::get_consumer()->m_endpoint.flush();
+}
+
 } // extern "C"

@@ -33,7 +33,7 @@ namespace
         {
             const uint8_t* pFrameStart = pBuf;
             const std::size_t b = pBufEnd - pBuf;
-            for (; pFrameStart < pBufEnd; pFrameStart++)
+            while(pFrameStart < pBufEnd)
             {
                 local::payload::header_t::type_t header;
                 const uint8_t* pFrameHeader = pFrameStart;
@@ -103,7 +103,7 @@ namespace
                 pFrameStart = pFrameEnd;
             }
             // TODO: notify not consumed bytes
-            return (pFrameStart - pBuf - 1/*compensate for(...pFrameStart++)*/) == b;
+            return (pFrameStart - pBuf) == b;
         };
     };
 

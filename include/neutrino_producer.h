@@ -17,6 +17,7 @@ extern "C"
     void neutrino_context_enter(const uint64_t m_nanoepoch, const uint64_t stream_id, const uint64_t event_id);
     void neutrino_context_leave(const uint64_t m_nanoepoch, const uint64_t stream_id, const uint64_t event_id);
     void neutrino_context_panic(const uint64_t m_nanoepoch, const uint64_t stream_id, const uint64_t event_id);
+    void neutrino_flush();
 
 #ifdef __cplusplus
 }
