@@ -4,6 +4,7 @@ target_sources(producer_v00_lib
 	${PROJECT_SOURCE_DIR}/src/producer_lib.cpp
 	PRIVATE 
 	${PROJECT_SOURCE_DIR}/src/v00/transport_lib.cpp
+	${PROJECT_SOURCE_DIR}/src/v00/neutrino_frames_serialized_network_bo.cpp
 	${PROJECT_SOURCE_DIR}/src/shared_lib.cpp
 )
 if(USE_MT)

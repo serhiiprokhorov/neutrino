@@ -2,7 +2,8 @@
 #include <array>
 
 #include <neutrino_transport.hpp>
-#include <neutrino_frames_serialized.hpp>
+#include <neutrino_frames_serialized_native_bo.hpp>
+#include <neutrino_frames_serialized_network_bo.hpp>
 #include <neutrino_transport_endpoint_async_posix_handle.hpp>
 #include <neutrino_transport_buffered_mt.hpp>
 #include <neutrino_transport_buffered_st.hpp>
@@ -168,8 +169,7 @@ namespace neutrino
                     switch(ke)
                     {
                     case known_encodings_t::BINARY_NETWORK:
-                        // TODO: implement this
-                        //return std::shared_ptr<consumer_stub_t>(new frame_v00_serializer_consumer_stub_impl_t<serialized::network_byte_order_target_t>(endpoint));
+                        return std::shared_ptr<consumer_stub_t>(new frame_v00_serializer_consumer_stub_impl_t<serialized::network_byte_order_target_t>(endpoint));
                     case known_encodings_t::BINARY_NATIVE:
                         return std::shared_ptr<consumer_stub_t>(new frame_v00_serializer_consumer_stub_impl_t<serialized::native_byte_order_target_t>(endpoint));
                     case known_encodings_t::JSON:
@@ -184,8 +184,7 @@ namespace neutrino
                     switch (ke)
                     {
                     case known_encodings_t::BINARY_NETWORK:
-                        // TODO: implement this
-                        //return std::shared_ptr<endpoint_impl_t>(new frame_v00_deserializer_endpoint_impl_t<serialized::network_byte_order_target_t>(consumer));
+                        return std::shared_ptr<endpoint_impl_t>(new frame_v00_deserializer_endpoint_impl_t<serialized::network_byte_order_target_t>(consumer));
                     case known_encodings_t::BINARY_NATIVE:
                         return std::shared_ptr<endpoint_impl_t>(new frame_v00_deserializer_endpoint_impl_t<serialized::native_byte_order_target_t>(consumer));
                     case known_encodings_t::JSON:
