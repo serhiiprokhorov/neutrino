@@ -19,6 +19,13 @@ target_sources(ut_v00_lib_gtest
 		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/ut_lib_gtest.cpp
 )
+if(TARGET_WIN32)
+	target_sources(ut_v00_lib_gtest
+		PRIVATE 
+		${PROJECT_SOURCE_DIR}/src/v00/neutrino_frames_serialized_network_bo_win32.cpp
+	)
+endif()
+
 if(USE_MT)
 target_sources(ut_v00_lib_gtest
 	PUBLIC 
