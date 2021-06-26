@@ -10,22 +10,23 @@ namespace neutrino
     {
         namespace transport
         {
-            bool buffered_exclusive_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
+            std::ptrdiff_t buffered_exclusive_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
             {
                 std::lock_guard<std::mutex> l(m_buffer_mtx);
                 return buffered_singlethread_endpoint_t::consume(p, e);
             }
 
-            bool buffered_optimistic_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
+            std::ptrdiff_t buffered_optimistic_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
             {
                 const auto beyond_the_end = (unsigned long long)1 + m_message_buf.size();
 
                 // step one: copy data
-                auto b = e - p;
+                std::ptrdiff_t b = e - p;
 
                 if(!b) // 0 bytes is a way how caller asks to flush the buffer
                 {
-                    return flush();
+                    flush();
+                    return 0;
                 }
 
                 auto optimistic_lock_retries_on_frame_add = m_params.m_optimistic_lock_retries;
@@ -48,7 +49,7 @@ namespace neutrino
                         if(!flush())
                         {
                             // TODO error.fetch_or(neutrino::impl::frame_v00::header::bits::MASK_PREV_FRAME_ERROR);
-                            return false;
+                            return 0;
                         }
                         optimistic_lock_retries_on_frame_add++; // add retry since flush() is not a failure
                         continue;
@@ -73,9 +74,11 @@ namespace neutrino
                     }
 
                     // step two: send if data above watermark
-                    return m_frame_start.load() <= m_buffered_endpoint_params.m_message_buf_watermark || flush();
+                    if(m_frame_start.load() > m_buffered_endpoint_params.m_message_buf_watermark)
+                        flush();
+                    return b;
                 }
-                return false;
+                return 0;
             }
 
             bool buffered_optimistic_endpoint_t::flush()

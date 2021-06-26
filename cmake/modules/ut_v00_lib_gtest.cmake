@@ -16,7 +16,9 @@ target_sources(ut_v00_lib_gtest
 		${PROJECT_SOURCE_DIR}/src/ut/mock_lib.cpp
 		${PROJECT_SOURCE_DIR}/src/ut/gtest_main.cpp
 		${PROJECT_SOURCE_DIR}/src/v00/ut_lib_gtest.cpp
-		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_gtest.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_buffered_gtest.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_endpoint_async_gtest.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_endpoint_win32_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/ut_lib_gtest.cpp
 )
 if(TARGET_WIN32)

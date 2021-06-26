@@ -7,13 +7,16 @@ namespace neutrino
     {
         namespace transport
         {
-            bool buffered_singlethread_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
+            std::ptrdiff_t buffered_singlethread_endpoint_t::consume(const std::uint8_t* p, const std::uint8_t* e)
             {
                 // step one: copy data
-                auto b = e - p;
+                std::ptrdiff_t b = e - p;
 
                 if(!b) // 0 bytes is a way how caller asks to flush the buffer
-                    return flush();
+                {
+                    flush();
+                    return 0;
+                }
 
                 auto end = m_frame_start + b;
 
@@ -25,13 +28,13 @@ namespace neutrino
                         // TODO: retry on fatal consumer error
                         // TODO: retval & retry || retval & fatal
                         // TODO error.fetch_or(neutrino::impl::frame_v00::header::bits::MASK_PREV_FRAME_ERROR);
-                        return false;
+                        return 0;
                     }
                     end = m_frame_start + b;
                     if(end > m_sz)
                     {
                         // TODO: handle overflow
-                        return false;
+                        return 0;
                     }
                 }
 
@@ -39,7 +42,9 @@ namespace neutrino
                 std::copy(p, p + b, m_data + m_frame_start);
                 m_frame_start = end;
 
-                return m_frame_start <= m_buffered_endpoint_params.m_message_buf_watermark || flush();
+                if(m_frame_start > m_buffered_endpoint_params.m_message_buf_watermark)
+                    flush();
+                return b;
             }
             bool buffered_singlethread_endpoint_t::flush()
             {

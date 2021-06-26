@@ -15,7 +15,7 @@ namespace neutrino
 
                 uint64_t m_frame_start{ 0 };
 
-                bool consume(const uint8_t* p, const uint8_t* e) override;
+                std::ptrdiff_t consume(const uint8_t* p, const uint8_t* e) override;
 
             protected:
                 bool flush() override;

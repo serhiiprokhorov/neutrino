@@ -6,11 +6,13 @@ target_sources(consumer_v00_lib
 	${PROJECT_SOURCE_DIR}/src/v00/transport_lib.cpp
 	${PROJECT_SOURCE_DIR}/src/v00/neutrino_frames_serialized_network_bo.cpp
 	${PROJECT_SOURCE_DIR}/src/shared_lib.cpp
+	${PROJECT_SOURCE_DIR}/src/transport/async_group.cpp
 )
 if(TARGET_WIN32)
 	target_sources(consumer_v00_lib
 		PRIVATE 
 		${PROJECT_SOURCE_DIR}/src/v00/neutrino_frames_serialized_network_bo_win32.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/win32_completition_port_data.cpp
 	)
 endif()
 target_include_directories(consumer_v00_lib PRIVATE ${PROJECT_SOURCE_DIR}/include)

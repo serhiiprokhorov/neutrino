@@ -16,7 +16,7 @@ namespace neutrino
 
                 std::mutex m_buffer_mtx;
 
-                bool consume(const uint8_t* p, const uint8_t* e) override;
+                std::ptrdiff_t consume(const uint8_t* p, const uint8_t* e) override;
             };
 
             struct buffered_optimistic_endpoint_t : public buffered_endpoint_t
@@ -37,7 +37,7 @@ namespace neutrino
                 {
                 }
 
-                bool consume(const uint8_t* p, const uint8_t* e) final;
+                std::ptrdiff_t consume(const uint8_t* p, const uint8_t* e) final;
             protected:
                 bool flush() final;
 

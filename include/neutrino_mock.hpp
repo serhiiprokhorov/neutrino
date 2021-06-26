@@ -49,7 +49,7 @@ namespace neutrino
         };
 
         template <typename endpoint_impl_t>
-        struct connection_t : public frames_collector_t
+        struct worker_t : public frames_collector_t
         {
             endpoint_impl_t& m_endpoint_impl;
 
@@ -58,7 +58,7 @@ namespace neutrino
                 return frames_collector_t::consume(p, e) && m_endpoint_impl.consume(p, e);
             }
 
-            connection_t(endpoint_impl_t& endpoint_impl)
+            worker_t(endpoint_impl_t& endpoint_impl)
                 : m_endpoint_impl(endpoint_impl)
             {
             }
