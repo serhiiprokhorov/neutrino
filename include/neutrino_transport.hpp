@@ -33,22 +33,6 @@ namespace neutrino
                 ) {};
             };
 
-            struct consumer_stub_t : public consumer_t
-            {
-                endpoint_t& m_endpoint;
-
-                consumer_stub_t(endpoint_t& endpoint)
-                    : m_endpoint(endpoint) {}
-            };
-
-            struct endpoint_impl_t : public endpoint_t
-            {
-                consumer_t& m_consumer;
-
-                endpoint_impl_t(consumer_t& consumer)
-                    : m_consumer(consumer) {}
-            };
-
             namespace frame_v00
             {
                 enum class known_encodings_t
@@ -57,9 +41,6 @@ namespace neutrino
                     , BINARY_NATIVE // for localhost
                     , JSON
                 };
-
-                std::shared_ptr<consumer_stub_t> create_consumer_stub(known_encodings_t, endpoint_t& endpoint);
-                std::shared_ptr<endpoint_impl_t> create_endpoint_impl(known_encodings_t, consumer_t& consumer);
             }
         }
     }
