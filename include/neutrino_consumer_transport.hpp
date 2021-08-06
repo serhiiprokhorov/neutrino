@@ -22,7 +22,7 @@ namespace neutrino
 
             namespace frame_v00
             {
-                std::shared_ptr<host_endpoint_impl_t> create_endpoint_impl(known_encodings_t, consumer_t& consumer);
+                std::shared_ptr<host_endpoint_impl_t> create_host_endpoint_impl(known_encodings_t, consumer_t& consumer);
             }
         }
     }

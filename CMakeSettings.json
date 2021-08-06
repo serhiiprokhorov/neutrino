@@ -6,11 +6,7 @@
 			"configurationType": "Debug",
 			"inheritEnvironments": [ "msvc_x64_x64" ],
 			"buildRoot": "${projectDir}\\out\\build\\${name}",
-			"installRoot": "${projectDir}\\out\\install\\${name}",
-			"cmakeCommandArgs": "-v",
-			"buildCommandArgs": "-v",
-			"ctestCommandArgs": "-v",
-			"variables": []
+			"installRoot": "${projectDir}\\out\\install\\${name}"
 		},
 		{
 			"name": "x86-Debug",
@@ -18,11 +14,7 @@
 			"configurationType": "Debug",
 			"inheritEnvironments": [ "msvc_x86" ],
 			"buildRoot": "${projectDir}\\out\\build\\${name}",
-			"installRoot": "${projectDir}\\out\\install\\${name}",
-			"cmakeCommandArgs": "-v",
-			"buildCommandArgs": "-v",
-			"ctestCommandArgs": "-v",
-			"variables": []
+			"installRoot": "${projectDir}\\out\\install\\${name}"
 		}
 	]
 }

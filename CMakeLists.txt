@@ -44,11 +44,11 @@ if(BUILD_TESTING)
 endif()
 
 if(USE_PRODUCER_V00_LIB)
-	include(producer_v00_lib)
+	include(neutrino_producer_v00_lib)
 endif()
 
 if(USE_CONSUMER_V00_LIB)
-	include(consumer_v00_lib)
+	include(neutrino_consumer_v00_lib)
 endif()
 
 if(BUILD_TESTING)
