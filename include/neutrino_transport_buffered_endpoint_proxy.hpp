@@ -72,7 +72,7 @@ namespace neutrino
                 }
             };
 
-            struct buffered_endpoint_t : public endpoint_t
+            struct buffered_endpoint_proxy_t : public endpoint_proxy_t
             {
                 struct buffered_endpoint_params_t
                 {
@@ -82,9 +82,9 @@ namespace neutrino
                 std::shared_ptr<buffer_t> m_message_buf;
                 buffer_t::container_t::iterator m_current_buf;
 
-                std::shared_ptr<endpoint_t> m_endpoint_sp;
+                std::shared_ptr<endpoint_proxy_t> m_endpoint_sp;
 
-                buffered_endpoint_t(
+                buffered_endpoint_proxy_t(
                     std::shared_ptr<endpoint_t> endpoint
                     , std::shared_ptr<buffer_t> message_buf
                     , const buffered_endpoint_params_t po

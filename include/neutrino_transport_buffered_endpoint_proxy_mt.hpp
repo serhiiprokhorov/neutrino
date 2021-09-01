@@ -2,7 +2,7 @@
 
 #include <mutex>
 #include <atomic>
-#include "neutrino_transport_buffered_st.hpp"
+#include "neutrino_transport_buffered_endpoint_proxy_st.hpp"
 
 namespace neutrino
 {
@@ -10,16 +10,16 @@ namespace neutrino
     {
         namespace transport
         {
-            struct buffered_exclusive_endpoint_t : public buffered_singlethread_endpoint_t
+            struct buffered_exclusive_endpoint_t : public buffered_singlethread_endpoint_proxy_t
             {
-                using buffered_singlethread_endpoint_t::buffered_singlethread_endpoint_t;
+                using buffered_singlethread_endpoint_proxy_t::buffered_singlethread_endpoint_proxy_t;
 
                 std::mutex m_buffer_mtx;
 
                 bool consume(const uint8_t* p, const uint8_t* e) override;
             };
 
-            struct buffered_optimistic_endpoint_t : public buffered_endpoint_t
+            struct buffered_optimistic_endpoint_t : public buffered_endpoint_proxy_t
             {
                 struct buffered_optimistic_consumer_params_t
                 {
@@ -30,7 +30,7 @@ namespace neutrino
 
                 buffered_optimistic_endpoint_t(
                     std::shared_ptr<endpoint_t> endpoint
-                    , const buffered_endpoint_t::buffered_endpoint_params_t bpo
+                    , const buffered_endpoint_proxy_t::buffered_endpoint_params_proxy_t bpo
                     , const buffered_optimistic_consumer_params_t po
                 )
                     : m_params(po), buffered_endpoint_t(endpoint, bpo)

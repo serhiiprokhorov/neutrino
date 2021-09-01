@@ -1,7 +1,7 @@
 #pragma once
 
-#include <memory>
-#include "neutrino_frames_local.hpp"
+#include <functional>
+#include "neutrino_consumer.hpp"
 
 namespace neutrino
 {
@@ -9,39 +9,31 @@ namespace neutrino
     {
         namespace transport
         {
-            struct endpoint_t
+            struct endpoint_proxy_t
             {
-                virtual ~endpoint_t() = default;
+                virtual ~endpoint_proxy_t() = default;
 
                 virtual bool consume(const uint8_t*, const uint8_t*) { return false; };
                 virtual bool flush() { return false; };
             };
 
-            struct consumer_t
+            struct consumer_proxy_t : public consumer_t
             {
-                virtual ~consumer_t() = default;
-                virtual void consume_checkpoint(
-                    const local::payload::nanoepoch_t::type_t&
-                    , const local::payload::stream_id_t::type_t&
-                    , const local::payload::event_id_t::type_t&
-                ) {};
-                virtual void consume_context(
-                    const local::payload::nanoepoch_t::type_t&
-                    , const local::payload::stream_id_t::type_t&
-                    , const local::payload::event_id_t::type_t&
-                    , const local::payload::event_type_t::event_types&
-                ) {};
+                endpoint_proxy_t& m_endpoint;
+
+                consumer_proxy_t(endpoint_proxy_t& endpoint)
+                    : m_endpoint(endpoint) {}
             };
 
-            namespace frame_v00
+            struct endpoint_t
             {
-                enum class known_encodings_t
-                {
-                    BINARY_NETWORK
-                    , BINARY_NATIVE // for localhost
-                    , JSON
-                };
-            }
+                consumer_t& m_consumer;
+
+                endpoint_t(consumer_t& consumer)
+                    : m_consumer(consumer) {}
+
+                virtual void process(std::function<bool()>stop_cond) = 0;
+            };
         }
     }
 }

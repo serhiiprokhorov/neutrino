@@ -1,7 +1,7 @@
 #pragma once
 
 #include <atomic>
-#include "neutrino_transport_buffered.hpp"
+#include "neutrino_transport_buffered_endpoint_proxy.hpp"
 
 namespace neutrino
 {
@@ -9,7 +9,7 @@ namespace neutrino
     {
         namespace transport
         {
-            struct buffered_singlethread_endpoint_t : public buffered_endpoint_t
+            struct buffered_singlethread_endpoint_proxy_t : public buffered_endpoint_proxy_t
             {
                 using buffered_endpoint_t::buffered_endpoint_t;
 

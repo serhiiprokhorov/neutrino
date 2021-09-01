@@ -4,8 +4,6 @@
 #include <string>
 #include <stdexcept>
 
-#include "neutrino_transport_buffered.hpp"
-
 namespace neutrino
 {
     namespace impl

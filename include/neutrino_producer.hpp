@@ -1,38 +1,11 @@
 #pragma once
 
+#include <stdint.h>
 #include <stdexcept>
-#include <memory>
-#include "neutrino_producer.h"
-#include "neutrino_transport.hpp"
+#include "neutrino_producer_interface.h"
 
 namespace neutrino
 {
-    namespace impl
-    {
-        namespace producer
-        {
-            struct config_t
-            {
-                std::string m_producer_id{ 0 }; // TODO: UUID?
-                std::string m_producer_role;
-                /*
-                std::unique_ptr<transport::endpoint_consumer_t::endpoint_params_t> ep;
-                std::unique_ptr<transport::async_posix_consumer_t::async_posix_consumer_params_t> aep;
-
-                std::unique_ptr < transport::buffered_consumer_t::buffered_consumer_params_t> bpo;
-                std::unique_ptr < transport::buffered_exclusive_consumer_t::buffered_exclusive_consumer_params_t> epo;
-                std::unique_ptr < transport::buffered_optimistic_consumer_t::buffered_optimistic_consumer_params_t> opo;
-                */
-            };
-
-            const config_t configure_from_json(const char* cfg, const uint32_t cfg_bytes);
-
-            std::shared_ptr<transport::consumer_stub_t> set_consumer(std::shared_ptr<transport::consumer_stub_t> p) noexcept;
-            std::shared_ptr<transport::consumer_stub_t> get_consumer() noexcept;
-
-        }
-    }
-
     namespace helpers
     {
         struct context_t
