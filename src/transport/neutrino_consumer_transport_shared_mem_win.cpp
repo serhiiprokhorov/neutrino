@@ -16,18 +16,33 @@ namespace memory
 namespace win_shared_mem
 {
 
-v00_names_t::v00_names_t(unsigned long pid, const std::string& domain, const std::string& suffix)
-    : m_shmm_name(
-        std::string(std::string::size_type(20 + domain.size() + suffix.size() + 7), '\x0')
-        .assign(std::to_string(pid)).append("_").append(domain).append("_shmm_").append(suffix))
-    , m_event_name(
-        std::string(std::string::size_type(20 + domain.size() + suffix.size() + 7), '\x0')
-        .assign(std::to_string(pid)).append("_").append(domain).append("_event_").append(suffix))
-    , m_sem_name(
-        std::string(std::string::size_type(20 + domain.size() + suffix.size() + 6), '\x0')
-        .assign(std::to_string(pid)).append("_").append(domain).append("_sem_").append(suffix))
+v00_names_t::v00_names_t(std::string shmm_name, std::string event_name, std::string sem_name)
+  : m_shmm_name(shmm_name), m_event_name(event_name), m_sem_name(sem_name)
 {
 }
+
+v00_names_t::v00_names_t(unsigned long pid, const std::string& domain, const std::string& suffix)
+  : v00_names_t(
+      std::string(std::string::size_type(20 + domain.size() + suffix.size() + 7), '\x0').assign(std::to_string(pid)).append("_").append(domain).append("_shmm_").append(suffix)
+      , std::string(std::string::size_type(20 + domain.size() + suffix.size() + 7), '\x0').assign(std::to_string(pid)).append("_").append(domain).append("_event_").append(suffix)
+      , std::string(std::string::size_type(20 + domain.size() + suffix.size() + 6), '\x0').assign(std::to_string(pid)).append("_").append(domain).append("_sem_").append(suffix)
+  )
+{
+}
+
+const v00_names_t v00_names_t::with_suffix(const std::string& sf) const
+{
+  std::string shmm_name; shmm_name.reserve(shmm_name.size() + sf.size() + 10);
+  std::string event_name; event_name.reserve(event_name.size() + sf.size() + 10);
+  std::string sem_name; sem_name.reserve(sem_name.size() + sf.size() + 10);
+
+  return v00_names_t(
+    std::move(shmm_name.assign(m_shmm_name)).append("_").append(sf)
+    , std::move(event_name.assign(m_event_name)).append("_").append(sf)
+    , std::move(sem_name.assign(m_sem_name)).append("_").append(sf)
+  );
+}
+
 
 const DWORD v00_header_dwLayoutVersion = 0;
 
@@ -60,7 +75,7 @@ v00_header_t::v00_header_t(OPEN_MODE op, DWORD dwMaximumSize)
 
 v00_sync_t::v00_sync_t(OPEN_MODE op, const v00_names_t& nm)
 {
-    if(op == OPEN_MODE::CREATE)
+  if(op == OPEN_MODE::CREATE)
     {
         m_hevent = CreateEventA(
             NULL
@@ -283,9 +298,10 @@ v00_pool_t::v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t&
 
   for(std::size_t i = 0; i < num_buffers; i++)
   {
-    m_syncs.emplace_back(new v00_sync_t(op, nm));
+    const auto indexed_nm = nm.with_suffix( std::to_string(i) );
+    m_syncs.emplace_back(new v00_sync_t(op, indexed_nm));
     m_sync_handles.emplace_back(m_syncs.back()->m_hevent);
-    m_buffers.emplace_back(new v00_buffer_t(op, nm, buf_size, *(m_syncs.back()), m_buffer.load()));
+    m_buffers.emplace_back(new v00_buffer_t(op, indexed_nm, buf_size, *(m_syncs.back()), m_buffer.load()));
     m_buffer = (m_buffers.back()).get();
   }
   m_buffers.front()->m_next = m_buffer;

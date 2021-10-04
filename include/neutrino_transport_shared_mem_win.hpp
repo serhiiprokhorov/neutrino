@@ -21,6 +21,9 @@ namespace neutrino
                 struct v00_names_t
                 {
                     v00_names_t(unsigned long pid, const std::string& domain, const std::string& suffix);
+                    v00_names_t(std::string shmm_name, std::string event_name, std::string sem_name);
+
+                    const v00_names_t with_suffix(const std::string& sf) const;
 
                     const std::string m_shmm_name;
                     const std::string m_event_name;
