@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include "neutrino_transport_buffered_endpoint_proxy.hpp"
 
 namespace neutrino
@@ -9,16 +8,11 @@ namespace neutrino
     {
         namespace transport
         {
-            struct buffered_singlethread_endpoint_proxy_t : public buffered_endpoint_proxy_t
+            struct singlethread_shared_memory_endpoint_proxy_t : public shared_memory_endpoint_proxy_t
             {
-                using buffered_endpoint_t::buffered_endpoint_t;
-
-                uint64_t m_frame_start{ 0 };
+                using shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_t;
 
                 bool consume(const uint8_t* p, const uint8_t* e) override;
-
-            protected:
-                bool flush() override;
             };
         }
     }

@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <stdexcept>
-#include "neutrino_producer_interface.h"
+#include "neutrino_producer.h"
 
 namespace neutrino
 {
@@ -16,7 +16,7 @@ namespace neutrino
             uint64_t m_enter_nanoepoch = 0;
             uint64_t m_exit_nanoepoch = 0;
 #endif
-#ifdef __cplusplus >= 201703L
+#if __cplusplus >= 201703L
             int m_count = std::uncaught_exceptions();
 #endif
             context_t(
@@ -52,7 +52,7 @@ namespace neutrino
                     ;
 
                 bool is_exception = 
-#ifdef __cplusplus >= 201703L
+#if __cplusplus >= 201703L
                     m_count != std::uncaught_exceptions()
 #else
                     std::uncaught_exception()

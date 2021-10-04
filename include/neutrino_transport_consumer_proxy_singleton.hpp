@@ -10,7 +10,7 @@ namespace neutrino
         namespace transport
         {
             std::shared_ptr<consumer_proxy_t> set_consumer_proxy(std::shared_ptr<consumer_proxy_t> p) noexcept;
-            std::shared_ptr<consumer_proxy_t> get_consumer_proxy() noexcept;
+            consumer_proxy_t& get_consumer_proxy() noexcept;
         }
     }
 }

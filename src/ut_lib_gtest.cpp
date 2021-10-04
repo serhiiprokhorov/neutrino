@@ -1,14 +1,15 @@
 #include <gtest/gtest.h>
 #include <thread>
-#include <neutrino_mock.hpp>
+//#include <neutrino_mock.hpp>
 
 #include <neutrino_producer.hpp>
 
-#include <neutrino_transport_buffered_mt.hpp>
-#include <neutrino_transport_buffered_st.hpp>
+#include <neutrino_transport_buffered_endpoint_proxy_mt.hpp>
+#include <neutrino_transport_buffered_endpoint_proxy_st.hpp>
 
 using namespace neutrino::impl;
 
+/*
 namespace
 {
     const uint64_t checkpoint_id_1 = 1;
@@ -24,7 +25,7 @@ namespace
 
     struct named_buffered_endpoint_params_t
     {
-        transport::buffered_endpoint_t::buffered_endpoint_params_t m_params;
+        transport::buffered_endpoint_proxy_t::buffered_endpoint_params_t m_params;
         std::string m_name;
     };
 
@@ -217,3 +218,4 @@ TEST_F(neutrino_general_with_transport_workflow_tests, transaction_singlethread)
         }
     }
 }
+*/

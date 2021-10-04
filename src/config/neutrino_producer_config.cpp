@@ -1,3 +1,4 @@
+/*
 #include <cstring>
 #include <cassert>
 
@@ -71,3 +72,4 @@ void neutrino_producer_shutdown()
 }
 
 } // extern "C"
+*/

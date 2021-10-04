@@ -6,10 +6,9 @@ if(TARGET_WIN32)
 		PUBLIC 
 		${PROJECT_SOURCE_DIR}/src/transport/neutrino_producer_transport_buffered_mt.cpp
 	)
-	else()
+	endif()
 	list(APPEND transport_v00_sources
 		PUBLIC 
 		${PROJECT_SOURCE_DIR}/src/transport/neutrino_producer_transport_buffered_st.cpp
 	)
-	endif()
 endif()

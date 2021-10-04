@@ -1,3 +1,4 @@
+/*
 #include <cstring>
 #include <cassert>
 
@@ -15,14 +16,14 @@ namespace neutrino
             const config_t configure_from_json(const char* cfg, const uint32_t cfg_bytes)
             {
                 config_t ret;
-                /*
+                / *
             buffered_consumer_t::buffered_consumer_params_t bpo;
             bpo.m_message_buf_size = 1000;
             bpo.m_message_buf_watermark = 100;
 
             buffered_exclusive_consumer_t::buffered_exclusive_consumer_params_t po;
 
-                */
+                * /
                 return ret;
             }
         }
@@ -78,3 +79,4 @@ void neutrino_producer_shutdown()
 }
 
 } // extern "C"
+*/

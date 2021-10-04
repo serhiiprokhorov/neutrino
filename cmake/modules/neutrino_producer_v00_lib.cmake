@@ -4,6 +4,7 @@ add_library(producer_v00_lib STATIC)
 target_sources(producer_v00_lib
 	PUBLIC 
 	${PROJECT_SOURCE_DIR}/src/neutrino_producer.cpp
+	${PROJECT_SOURCE_DIR}/src/neutrino_consumer_proxy.cpp
 	${PROJECT_SOURCE_DIR}/src/config/neutrino_producer_config.cpp
 	${PROJECT_SOURCE_DIR}/src/transport/neutrino_producer_consumer_proxy_singleton.cpp
 	PRIVATE 

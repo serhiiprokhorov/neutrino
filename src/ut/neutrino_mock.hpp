@@ -20,10 +20,8 @@ namespace neutrino
 {
     namespace mock
     {
-        struct frames_collector_t : public impl::transport::endpoint_t
+        struct frames_collector_t
         {
-            using impl::transport::endpoint_t::endpoint_t;
-
             struct raw_frame_t
             {
                 std::vector<uint8_t> m_buffer;
@@ -40,7 +38,7 @@ namespace neutrino
             std::mutex m_m;
             std::list<raw_frame_t> m_sumbissions; // may contain multiple frames due to buffering
 
-            bool consume(const uint8_t* p, const uint8_t* e) override
+            bool consume(const uint8_t* p, const uint8_t* e)
             {
                 std::lock_guard<std::mutex> lk(m_m);
                 m_sumbissions.emplace_back(p, e);
@@ -64,7 +62,7 @@ namespace neutrino
             }
         };
 
-        struct consumer_t : public impl::transport::consumer_t
+        struct consumer_t : public impl::consumer_t
         {
             std::map<neutrino::impl::local::payload::stream_id_t::type_t, std::size_t> m_expected_frame_cc;
             std::size_t m_actual_frame_cc = 0;
@@ -202,15 +200,15 @@ namespace neutrino
         };
         struct scoped_guard
         {
-            std::shared_ptr<neutrino::impl::transport::consumer_stub_t> m_prev_consumer;
-            scoped_guard(std::shared_ptr<neutrino::impl::transport::consumer_stub_t> e)
-                : m_prev_consumer(neutrino::impl::producer::set_consumer(e))
+            std::shared_ptr<neutrino::impl::transport::consumer_proxy_t> m_prev_consumer;
+            scoped_guard(std::shared_ptr<neutrino::impl::transport::consumer_proxy_t> e)
+                // : m_prev_consumer(neutrino::impl::transport::consumer_proxy_t::producer::set_consumer(e))
             {
             }
 
             ~scoped_guard()
             {
-                neutrino::impl::producer::set_consumer(m_prev_consumer);
+                // neutrino::impl::producer::set_consumer(m_prev_consumer);
             }
         };
     }

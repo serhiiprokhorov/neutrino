@@ -1,3 +1,7 @@
+include(CTest)
+include(GoogleTest)
+find_package(GTest CONFIG REQUIRED)   
+
 add_executable(ut_v00_lib_gtest)
 
 if(TARGET_WIN32)
@@ -24,6 +28,7 @@ target_sources(ut_v00_lib_gtest
 		${PROJECT_SOURCE_DIR}/src/ut/gtest_main.cpp
 		${PROJECT_SOURCE_DIR}/src/v00/ut_lib_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_gtest.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/ut_shared_mem_win_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/ut_lib_gtest.cpp
 )
 
@@ -35,6 +40,8 @@ target_link_libraries(ut_v00_lib_gtest
 		#GTest::gmock 
 		#GTest::gmock_main
 )
-gtest_discover_tests(ut_v00_lib_gtest
-	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/gtest
-)
+gtest_add_tests(TARGET ut_v00_lib_gtest)
+#gtest_discover_tests(ut_v00_lib_gtest
+#	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/gtest
+#)
+add_test(NAME monolithic COMMAND ut_v00_lib_gtest)

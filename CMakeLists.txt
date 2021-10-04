@@ -37,9 +37,9 @@ message(STATUS "TARGET_WIN32 ${TARGET_WIN32}")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 if(BUILD_TESTING)
-	include(CTest)
-	include(GoogleTest)
-    find_package(GTest CONFIG REQUIRED)   
+	#include(CTest)
+	#include(GoogleTest)
+    #find_package(GTest CONFIG REQUIRED)   
 	add_compile_definitions(UT)
 endif()
 

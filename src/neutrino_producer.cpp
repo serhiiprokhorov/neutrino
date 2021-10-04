@@ -15,27 +15,27 @@ uint64_t neutrino_nanoepoch(void)
 
 void neutrino_checkpoint(const uint64_t nanoepoch, const uint64_t stream_id, const uint64_t event_id)
 {
-    transport::get_consumer_proxy()->consume_checkpoint(nanoepoch, stream_id, event_id);
+    transport::get_consumer_proxy().consume_checkpoint(nanoepoch, stream_id, event_id);
 }
 
 void neutrino_context_enter(const uint64_t nanoepoch, const uint64_t stream_id, const uint64_t event_id)
 {
-    transport::get_consumer_proxy()->consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_ENTER);
+    transport::get_consumer_proxy().consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_ENTER);
 }
 
 void neutrino_context_leave(const uint64_t nanoepoch, const uint64_t stream_id, const uint64_t event_id)
 {
-    transport::get_consumer_proxy()->consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_LEAVE);
+    transport::get_consumer_proxy().consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_LEAVE);
 }
 
 void neutrino_context_panic(const uint64_t nanoepoch, const uint64_t stream_id, const uint64_t event_id)
 {
-    transport::get_consumer_proxy()->consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_PANIC);
+    transport::get_consumer_proxy().consume_context(nanoepoch, stream_id, event_id, local::payload::event_type_t::event_types::CONTEXT_PANIC);
 }
 
 void neutrino_flush()
 {
-    transport::get_consumer_proxy()->m_endpoint.flush();
+    transport::get_consumer_proxy().m_endpoint.flush();
 }
 
 } // extern "C"
