@@ -42,20 +42,22 @@ namespace neutrino
                     DWORD m_dwLayoutVersion;
                     DWORD m_hostPID; /// host app reading from a buffer
                     DWORD m_dwMaximumSize;
-                    alignas(alignof(uint64_t)) LONGLONG m_dwInUseSize;
+                    alignas(alignof(uint64_t)) LONG64 m_inuse_bytes;
+                    alignas(alignof(uint64_t)) LONG64 m_inuse_diff_ns;
 
                     v00_header_t(OPEN_MODE op, DWORD dwMaximumSize);
                     std::size_t size() const { return sizeof(*this); }
 
-                    void set_inuse(const uint64_t inuse) noexcept;
-                    void set_free(const uint64_t bytes_inuse) noexcept;
+                    // not thread safe
+                    void set_inuse(const LONG64 inuse, const LONG64 diff_started) noexcept;
+                    // not thread safe
+                    void set_free() noexcept;
                 };
 
                 struct v00_sync_t //: public shared_memory::sync_t
                 {
                     HANDLE m_hevent = INVALID_HANDLE_VALUE;
                     HANDLE m_hsem = INVALID_HANDLE_VALUE;
-                    bool m_is_clean = true;
 
                     v00_sync_t(OPEN_MODE op, const v00_names_t&);
                     ~v00_sync_t();
@@ -73,7 +75,7 @@ namespace neutrino
                     struct mapped_memory_layout_t
                     {
                       v00_header_t m_header;
-                      uint8_t m_data[1];
+                      uint8_t m_first_byte;
                       mapped_memory_layout_t(OPEN_MODE op, DWORD dwMaximumSize)
                         : m_header(op, dwMaximumSize) {}
                     };
@@ -82,15 +84,18 @@ namespace neutrino
                     mapped_memory_layout_t* m_data; // inplace ctor, not a dynamic memory resource
                     const uint64_t m_data_size; 
                     std::atomic<uint64_t> m_occupied;
+                    std::chrono::steady_clock::time_point m_started; // TODO: for set_inuse
 
                     const bool is_clean() const noexcept final { return m_sync.is_clean(); }
-                    void dirty() noexcept final { 
-                      m_data->m_header.set_inuse(m_occupied.load());
+                    void dirty() noexcept final {
+                      m_data->m_header.set_inuse(
+                        m_occupied.load()
+                        , std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count());
                       m_sync.dirty();
                     }
                     void clear() noexcept final { 
                       m_sync.clear(); 
-                      m_data->m_header.set_free(m_occupied.load());
+                      m_data->m_header.set_free();
                     }
 
                     virtual shared_memory::buffer_t* get_next() const noexcept
@@ -102,22 +107,39 @@ namespace neutrino
 
                     span_t get_data() noexcept final
                     {
-                      m_occupied = m_data->m_header.m_dwInUseSize;
-                      return { m_data->m_data, m_occupied.load() };
+                      m_occupied = m_data->m_header.m_inuse_bytes; // TODO: needs mem fence!!!
+                      const uint64_t sequence = m_data->m_header.m_inuse_diff_ns;
+                      return { &m_data->m_first_byte, m_occupied.load(), sequence };
                     }
 
-                   v00_buffer_t(OPEN_MODE op, const v00_names_t&, const DWORD buf_size, v00_sync_t& sync, buffer_t* b);
+                   v00_buffer_t(OPEN_MODE op, const v00_names_t&, const DWORD buf_size, v00_sync_t& sync, buffer_t* b, std::chrono::steady_clock::time_point started);
                     ~v00_buffer_t();
                 };
 
                 struct v00_pool_t : public shared_memory::pool_t
                 {
                   std::vector<std::shared_ptr<v00_sync_t>> m_syncs;
-                  std::vector<HANDLE> m_sync_handles;
                   std::vector<std::shared_ptr<v00_buffer_t>> m_buffers;
+                  std::chrono::steady_clock::time_point m_started;
 
 
                   v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size);
+                  ~v00_pool_t();
+                };
+
+                // TODO: consumer-only header?
+                struct v00_async_consumer_t
+                {
+                  std::vector<HANDLE> m_sync_handles;
+                  HANDLE m_stop_event;
+                  std::shared_ptr<v00_pool_t> m_pool;
+                  std::vector<std::pair<std::size_t/*index of v00_pool_t::m_buffers*/, shared_memory::buffer_t::span_t>> m_ordered_consumption_sequence;
+
+                  v00_async_consumer_t(std::shared_ptr<v00_pool_t> pool);
+                  ~v00_async_consumer_t();
+
+                  // starts new thread, returns cancellation function
+                  std::function<void()> start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one);
                 };
             };
         }

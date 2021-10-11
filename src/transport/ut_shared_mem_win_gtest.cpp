@@ -11,9 +11,9 @@ class neutrino_transport_shared_mem_win_Fixture : public ::testing::Test {
 
   std::unique_ptr<neutrino::impl::memory::win_shared_mem::v00_names_t> nm;
 
-  std::unique_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > host_pool;
+  std::shared_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > host_pool;
 
-  std::unique_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > guest_pool;
+  std::shared_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > guest_pool;
 
 
   void SetUp() override {
@@ -41,7 +41,7 @@ class neutrino_transport_shared_mem_win_Fixture : public ::testing::Test {
   }
 };
 
-TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_buffer_t)
+TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_buffer_t_clean_dirty)
 {
     neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
     ASSERT_EQ(0, guest_span.free_bytes);
@@ -69,7 +69,7 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_buffer_t)
     ASSERT_TRUE(host_pool->m_buffer.load()->is_clean());
 }
 
-TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t)
+TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_next_available)
 {
   std::vector<neutrino::impl::shared_memory::buffer_t*> bp;
 
@@ -98,4 +98,45 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t)
     neutrino::impl::shared_memory::buffer_t* pNext = guest_pool->next_available(bp[dirty_idx]);
     ASSERT_TRUE(pNext == bp[dirty_idx]) << "expect buffer to check all buffers and return back to the same one when all of them are dirty";
   }
+}
+
+TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
+{
+  std::list<std::vector<uint8_t>> consumed_list;
+
+  neutrino::impl::memory::win_shared_mem::v00_async_consumer_t consumer(host_pool);
+
+  const uint32_t expected_buffers_received = 20;
+  std::atomic_uint32_t actual_buffers_received{0};
+
+  auto at_cancel = consumer.start(
+    [&consumed_list, &actual_buffers_received](const uint8_t* p, const uint8_t* e)
+    {
+      consumed_list.emplace_back();
+      consumed_list.back().assign(p, e);
+      actual_buffers_received++;
+    }
+  );
+
+  for(std::size_t i = 0; i < expected_buffers_received; i++)
+  {
+    // TODO: modify expected_data to check linear transfer
+    neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
+    memmove(guest_span.m_span, &(expected_data[0]), buf_size);
+    guest_pool->m_buffer.load()->dirty();
+    guest_pool->m_buffer = guest_pool->next_available(guest_pool->m_buffer.load());
+    // this sleep allows consumer thread to get some processing time
+    std::this_thread::yield();
+  }
+
+  auto timepoint_of_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{20};
+  while(timepoint_of_timeout > std::chrono::steady_clock::now() && actual_buffers_received.load() < expected_buffers_received)
+  {
+    // this sleep allows consumer thread to get some processing time
+    std::this_thread::sleep_for(std::chrono::milliseconds{ 1000 });
+  }
+
+  at_cancel();
+
+  ASSERT_EQ(actual_buffers_received.load(), expected_buffers_received);
 }

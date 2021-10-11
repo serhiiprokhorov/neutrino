@@ -48,9 +48,9 @@ namespace neutrino
                 /// atomically updates buffer data so no other thread may use this area
                 struct span_t
                 {
-                  uint8_t* const m_span;
-                  const uint64_t free_bytes; // how many bytes left in a buffer
-
+                  uint8_t* m_span = nullptr;
+                  uint64_t free_bytes = 0; // how many bytes left in a buffer
+                  uint64_t sequence = 0; // non decreasing counter, indicates relative time when the buffer was marked dirty
                   operator bool() const noexcept { return m_span; }
                 };
 
