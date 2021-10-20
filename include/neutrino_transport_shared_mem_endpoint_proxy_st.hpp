@@ -1,6 +1,6 @@
 #pragma once
 
-#include "neutrino_transport_buffered_endpoint_proxy.hpp"
+#include "neutrino_transport_shared_mem.hpp"
 
 namespace neutrino
 {

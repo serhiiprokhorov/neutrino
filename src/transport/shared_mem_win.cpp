@@ -286,7 +286,7 @@ v00_pool_t::~v00_pool_t()
 {
 }
 
-v00_async_consumer_t::v00_async_consumer_t(std::shared_ptr<v00_pool_t> pool)
+v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
   : m_pool(pool)
 {
   m_stop_event = CreateEventA(NULL, false/*auto reset*/, false /*nonsignaled*/, NULL);
@@ -307,12 +307,12 @@ v00_async_consumer_t::v00_async_consumer_t(std::shared_ptr<v00_pool_t> pool)
   m_ordered_consumption_sequence.reserve(m_pool->m_buffers.size());
 }
 
-v00_async_consumer_t::~v00_async_consumer_t()
+v00_async_listener_t::~v00_async_listener_t()
 {
   CloseHandle(m_stop_event);
 }
 
-std::function<void()> v00_async_consumer_t::start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one)
+std::function<void()> v00_async_listener_t::start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one)
 {
   const auto runner_f = [this, consume_one]()
   {

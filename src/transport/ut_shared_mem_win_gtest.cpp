@@ -17,10 +17,13 @@ class neutrino_transport_shared_mem_win_Fixture : public ::testing::Test {
 
 
   void SetUp() override {
-
-    expected_data.reserve(buf_size);
-    for (std::size_t i = 0; i < buf_size; i++)
-      expected_data.emplace_back((uint8_t)(i % 0xff));
+    
+    {
+      const auto sz = 30 * buf_size;
+      expected_data.reserve(sz);
+      for (std::size_t i = 0; i < sz; i++)
+        expected_data.emplace_back((uint8_t)(i % 0xff));
+    }
 
     nm.reset(new neutrino::impl::memory::win_shared_mem::v00_names_t(123, "domain", "suffix"));
 
@@ -104,9 +107,9 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
 {
   std::list<std::vector<uint8_t>> consumed_list;
 
-  neutrino::impl::memory::win_shared_mem::v00_async_consumer_t consumer(host_pool);
+  neutrino::impl::memory::win_shared_mem::v00_async_listener_t consumer(host_pool);
 
-  const uint32_t expected_buffers_received = 20;
+  const uint32_t expected_buffers_received = expected_data.size() / buf_size;
   std::atomic_uint32_t actual_buffers_received{0};
 
   auto at_cancel = consumer.start(
@@ -118,25 +121,43 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
     }
   );
 
+  std::size_t transmitted = 0;
+  auto timepoint_of_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{ 40 };
   for(std::size_t i = 0; i < expected_buffers_received; i++)
   {
-    // TODO: modify expected_data to check linear transfer
-    neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
-    memmove(guest_span.m_span, &(expected_data[0]), buf_size);
-    guest_pool->m_buffer.load()->dirty();
+    if(guest_pool->m_buffer.load()->is_clean())
+    {
+      // TODO: modify expected_data to check linear transfer
+      neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
+      memmove(guest_span.m_span, &(expected_data[transmitted]), buf_size);
+      guest_pool->m_buffer.load()->dirty();
+      transmitted += buf_size;
+    }
+    if(timepoint_of_timeout < std::chrono::steady_clock::now())
+      break;
     guest_pool->m_buffer = guest_pool->next_available(guest_pool->m_buffer.load());
     // this sleep allows consumer thread to get some processing time
-    std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds{1});
   }
 
-  auto timepoint_of_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{20};
   while(timepoint_of_timeout > std::chrono::steady_clock::now() && actual_buffers_received.load() < expected_buffers_received)
   {
     // this sleep allows consumer thread to get some processing time
-    std::this_thread::sleep_for(std::chrono::milliseconds{ 1000 });
+    std::this_thread::sleep_for(std::chrono::milliseconds{ 1 });
   }
 
   at_cancel();
 
   ASSERT_EQ(actual_buffers_received.load(), expected_buffers_received);
+
+  std::size_t consumed = 0;
+  std::size_t block = 0;
+  for(const auto& c : consumed_list)
+  {
+    for(std::size_t x = 0; x < c.size(); x++)
+    {
+      ASSERT_TRUE(expected_data[consumed++] == c[x]) << "consumed " << (consumed - 1) << ", block " << block << " x " << x;
+    }
+    block++;
+  }
 }

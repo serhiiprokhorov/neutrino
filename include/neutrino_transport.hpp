@@ -14,7 +14,6 @@ namespace neutrino
                 virtual ~endpoint_proxy_t() = default;
 
                 virtual bool consume(const uint8_t*, const uint8_t*) { return false; };
-                virtual bool flush() { return false; };
             };
 
             struct consumer_proxy_t : public consumer_t

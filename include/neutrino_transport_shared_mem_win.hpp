@@ -8,7 +8,7 @@
 #include <string>
 #include <stdexcept>
 
-#include <neutrino_transport_buffered_endpoint_proxy.hpp>
+#include <neutrino_transport_shared_mem.hpp>
 
 namespace neutrino
 {
@@ -84,13 +84,14 @@ namespace neutrino
                     mapped_memory_layout_t* m_data; // inplace ctor, not a dynamic memory resource
                     const uint64_t m_data_size; 
                     std::atomic<uint64_t> m_occupied;
-                    std::chrono::steady_clock::time_point m_started; // TODO: for set_inuse
+                    const std::chrono::steady_clock::time_point m_started; // TODO: for set_inuse
 
                     const bool is_clean() const noexcept final { return m_sync.is_clean(); }
                     void dirty() noexcept final {
                       m_data->m_header.set_inuse(
                         m_occupied.load()
                         , std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count());
+                      m_occupied = 0;
                       m_sync.dirty();
                     }
                     void clear() noexcept final { 
@@ -128,15 +129,15 @@ namespace neutrino
                 };
 
                 // TODO: consumer-only header?
-                struct v00_async_consumer_t
+                struct v00_async_listener_t
                 {
                   std::vector<HANDLE> m_sync_handles;
                   HANDLE m_stop_event;
                   std::shared_ptr<v00_pool_t> m_pool;
                   std::vector<std::pair<std::size_t/*index of v00_pool_t::m_buffers*/, shared_memory::buffer_t::span_t>> m_ordered_consumption_sequence;
 
-                  v00_async_consumer_t(std::shared_ptr<v00_pool_t> pool);
-                  ~v00_async_consumer_t();
+                  v00_async_listener_t(std::shared_ptr<v00_pool_t> pool);
+                  ~v00_async_listener_t();
 
                   // starts new thread, returns cancellation function
                   std::function<void()> start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one);

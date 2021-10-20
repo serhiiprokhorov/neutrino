@@ -2,7 +2,7 @@
 
 #include <mutex>
 #include <atomic>
-#include "neutrino_transport_buffered_endpoint_proxy_st.hpp"
+#include "neutrino_transport_shared_mem_endpoint_proxy_st.hpp"
 
 namespace neutrino
 {

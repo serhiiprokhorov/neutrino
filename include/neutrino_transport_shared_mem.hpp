@@ -88,6 +88,8 @@ namespace neutrino
                 struct shared_memory_endpoint_proxy_params_t
                 {
                     std::size_t m_message_buf_watermark{ 0 };
+                    std::size_t m_retries_on_overflow{10};
+                    std::chrono::microseconds m_sleep_on_overflow{ std::chrono::milliseconds{10} };
                 } const m_shared_memory_endpoint_proxy_params;
 
                 std::shared_ptr<shared_memory::pool_t> m_pool;

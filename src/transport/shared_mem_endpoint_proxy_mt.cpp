@@ -2,7 +2,7 @@
 #include <thread>
 #include <cassert>
 
-#include <neutrino_transport_buffered_endpoint_proxy_mt.hpp>
+#include <neutrino_transport_shared_mem_endpoint_proxy_mt.hpp>
 
 namespace neutrino
 {

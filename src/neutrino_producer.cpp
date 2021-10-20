@@ -35,7 +35,7 @@ void neutrino_context_panic(const uint64_t nanoepoch, const uint64_t stream_id, 
 
 void neutrino_flush()
 {
-    transport::get_consumer_proxy().m_endpoint.flush();
+    //transport::get_consumer_proxy().m_endpoint.flush();
 }
 
 } // extern "C"

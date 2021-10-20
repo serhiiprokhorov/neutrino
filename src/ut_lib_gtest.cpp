@@ -4,8 +4,8 @@
 
 #include <neutrino_producer.hpp>
 
-#include <neutrino_transport_buffered_endpoint_proxy_mt.hpp>
-#include <neutrino_transport_buffered_endpoint_proxy_st.hpp>
+#include <neutrino_transport_shared_mem_endpoint_proxy_mt.hpp>
+#include <neutrino_transport_shared_mem_endpoint_proxy_st.hpp>
 
 using namespace neutrino::impl;
 

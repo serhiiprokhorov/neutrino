@@ -29,6 +29,7 @@ target_sources(ut_v00_lib_gtest
 		${PROJECT_SOURCE_DIR}/src/v00/ut_lib_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/transport/ut_lib_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/transport/ut_shared_mem_win_gtest.cpp
+		${PROJECT_SOURCE_DIR}/src/transport/ut_shared_mem_win_endpoint_proxy_gtest.cpp
 		${PROJECT_SOURCE_DIR}/src/ut_lib_gtest.cpp
 )
 
