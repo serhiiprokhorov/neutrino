@@ -43,7 +43,7 @@ namespace neutrino
                     DWORD m_hostPID; /// host app reading from a buffer
                     DWORD m_dwMaximumSize;
                     alignas(alignof(uint64_t)) LONG64 m_inuse_bytes;
-                    alignas(alignof(uint64_t)) LONG64 m_inuse_diff_ns;
+                    alignas(alignof(uint64_t)) LONG64 m_sequence;
 
                     v00_header_t(OPEN_MODE op, DWORD dwMaximumSize);
                     std::size_t size() const { return sizeof(*this); }
@@ -87,10 +87,12 @@ namespace neutrino
                     const std::chrono::steady_clock::time_point m_started; // TODO: for set_inuse
 
                     const bool is_clean() const noexcept final { return m_sync.is_clean(); }
-                    void dirty() noexcept final {
+                    void dirty(uint64_t dirty_buffer_counter) noexcept final {
                       m_data->m_header.set_inuse(
                         m_occupied.load()
-                        , std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count());
+                        //, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count()
+                        , dirty_buffer_counter
+                      );
                       m_occupied = 0;
                       m_sync.dirty();
                     }
@@ -109,7 +111,7 @@ namespace neutrino
                     span_t get_data() noexcept final
                     {
                       m_occupied = m_data->m_header.m_inuse_bytes; // TODO: needs mem fence!!!
-                      const uint64_t sequence = m_data->m_header.m_inuse_diff_ns;
+                      const uint64_t sequence = m_data->m_header.m_sequence;
                       return { &m_data->m_first_byte, m_occupied.load(), sequence };
                     }
 
@@ -135,6 +137,9 @@ namespace neutrino
                   HANDLE m_stop_event;
                   std::shared_ptr<v00_pool_t> m_pool;
                   std::vector<std::pair<std::size_t/*index of v00_pool_t::m_buffers*/, shared_memory::buffer_t::span_t>> m_ordered_consumption_sequence;
+                  LONG64 m_next_sequence;
+
+                  std::vector<LONG64> m_processed;
 
                   v00_async_listener_t(std::shared_ptr<v00_pool_t> pool);
                   ~v00_async_listener_t();

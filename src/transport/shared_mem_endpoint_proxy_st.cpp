@@ -29,7 +29,7 @@ namespace neutrino
                     }
                   }
 
-                  buffer->dirty();
+                  buffer->dirty(m_dirty_buffer_counter++);
 
                   shared_memory::buffer_t* next_buffer = m_pool->next_available(buffer);
                   if(next_buffer == buffer)

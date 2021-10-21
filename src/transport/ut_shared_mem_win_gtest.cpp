@@ -53,7 +53,7 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_buffer_t_clean_dirty)
     ASSERT_TRUE(guest_pool->m_buffer.load()->is_clean());
     ASSERT_TRUE(host_pool->m_buffer.load()->is_clean());
 
-    guest_pool->m_buffer.load()->dirty();
+    guest_pool->m_buffer.load()->dirty(0);
     ASSERT_FALSE(guest_pool->m_buffer.load()->is_clean());
     ASSERT_FALSE(guest_pool->m_buffer.load()->is_clean());
     ASSERT_FALSE(host_pool->m_buffer.load()->is_clean());
@@ -76,12 +76,13 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_next_available)
 {
   std::vector<neutrino::impl::shared_memory::buffer_t*> bp;
 
+  uint64_t dirty_count{0};
   neutrino::impl::shared_memory::buffer_t* pB = guest_pool->m_buffer.load();
   for(std::size_t idx = 0; idx < num_buffers; idx++)
   {
     ASSERT_TRUE(pB->is_clean());
     neutrino::impl::shared_memory::buffer_t::span_t guest_span = pB->get_span(buf_size);
-    pB->dirty();
+    pB->dirty(dirty_count++);
     bp.push_back(pB);
     neutrino::impl::shared_memory::buffer_t* pNext = guest_pool->next_available(pB);
     if(idx == num_buffers - 1)
@@ -121,6 +122,7 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
     }
   );
 
+  uint64_t dirty_count{0};
   std::size_t transmitted = 0;
   auto timepoint_of_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{ 40 };
   for(std::size_t i = 0; i < expected_buffers_received; i++)
@@ -130,7 +132,7 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
       // TODO: modify expected_data to check linear transfer
       neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
       memmove(guest_span.m_span, &(expected_data[transmitted]), buf_size);
-      guest_pool->m_buffer.load()->dirty();
+      guest_pool->m_buffer.load()->dirty(dirty_count++);
       transmitted += buf_size;
     }
     if(timepoint_of_timeout < std::chrono::steady_clock::now())

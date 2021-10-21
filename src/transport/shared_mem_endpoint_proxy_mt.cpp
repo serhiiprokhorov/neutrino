@@ -92,7 +92,7 @@ namespace neutrino
 
                       // it is now safe to make active_buf dirty and sync with host app
                       // because no other thread access active_buf with prof: we just updated m_current_buf with compare_exchange_weak
-                      active_buf->dirty();
+                      active_buf->dirty(0);
 
                       std::this_thread::yield();
                       continue;

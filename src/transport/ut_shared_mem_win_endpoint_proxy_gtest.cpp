@@ -22,7 +22,7 @@ class neutrino_transport_shared_mem_endpoint_proxy_Fixture : public ::testing::T
   void SetUp() override {
     
     {
-      const auto sz = num_buffers * buf_size * 3000 /*big value here guarantees no errors even with MT env*/;
+      const auto sz = num_buffers * buf_size * 30000 /*big value here guarantees no errors even with MT env*/;
       expected_data.reserve(sz);
       for (std::size_t i = 0; i < sz; i++)
         expected_data.emplace_back((uint8_t)(i % 0xff));
@@ -60,15 +60,27 @@ TEST_F(neutrino_transport_shared_mem_endpoint_proxy_Fixture, singlethread_shared
   consumed_list.resize(expected_data.size());
   uint8_t* pStart = &(consumed_list[0]);
   uint8_t* pData = pStart;
+
+  uint64_t sequence_mismatch = 0;
+
+  uint8_t* pX = &(expected_data[0]);
   auto at_cancel = listener.start(
-    [&consumed_list, &actual_consumed_cc, &pData, &pStart](const uint8_t* p, const uint8_t* e)
+    [this, &sequence_mismatch, &consumed_list, &actual_consumed_cc, &pData, &pStart, &pX](const uint8_t* p, const uint8_t* e)
     {
-      while(p != e)
+      const auto bytes = e - p;
+      memmove(pData, p, bytes);
+      pData += bytes;
+      actual_consumed_cc += bytes;
+
+      for(std::size_t x = 0; x < bytes; x++)
       {
-        //consumed_list.push_back(*p);
-        *(pData++) = *(p++);
+        if(pX[x] != p[x])
+        {
+          sequence_mismatch++;
+        }
       }
-      actual_consumed_cc = pData - pStart;
+
+      pX += bytes;
     }
   );
 
@@ -76,8 +88,6 @@ TEST_F(neutrino_transport_shared_mem_endpoint_proxy_Fixture, singlethread_shared
     std::launch::async,
     [this, &x, &actual_consumed_cc]()
     {
-      const std::size_t retries_max = 10;
-      std::size_t retries_cc = 0;
       std::ptrdiff_t produced_cc = 0;
       for (; produced_cc < expected_data.size() - 1; produced_cc++)
       {
@@ -100,11 +110,16 @@ TEST_F(neutrino_transport_shared_mem_endpoint_proxy_Fixture, singlethread_shared
     std::this_thread::sleep_for(std::chrono::milliseconds{ 1000 });
   }
 
-  ASSERT_EQ(actual_consumed_cc.load(), actual_transmitted_cc);
+  EXPECT_EQ(0, sequence_mismatch);
 
-  for(std::size_t i = 0; i < consumed_list.size(); i++)
   {
-    ASSERT_EQ(consumed_list[i], expected_data[i]) << i ;
+    const auto actual_consumed = actual_consumed_cc.load();
+    ASSERT_EQ(actual_consumed, actual_transmitted_cc);
+
+    for (std::size_t i = 0; i < actual_consumed; i++)
+    {
+      ASSERT_EQ(consumed_list[i], expected_data[i]) << i;
+    }
   }
 
   at_cancel();

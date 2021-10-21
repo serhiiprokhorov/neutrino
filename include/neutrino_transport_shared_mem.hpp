@@ -39,7 +39,7 @@ namespace neutrino
                 virtual ~buffer_t() = default;
 
                 virtual const bool is_clean() const noexcept = 0;
-                virtual void dirty() noexcept = 0;
+                virtual void dirty(uint64_t dirty_buffer_counter) noexcept = 0;
                 virtual void clear() noexcept = 0;
 
                 //virtual sync_t* get_sync() const noexcept = 0;

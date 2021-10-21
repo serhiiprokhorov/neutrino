@@ -55,7 +55,7 @@ v00_header_t::v00_header_t(OPEN_MODE op, DWORD dwMaximumSize)
         m_hostPID = GetCurrentProcessId();
         m_dwMaximumSize = dwMaximumSize;
         m_inuse_bytes = 0;
-        m_inuse_diff_ns = 0;
+        m_sequence = 0;
     }
     else
     {
@@ -77,13 +77,13 @@ v00_header_t::v00_header_t(OPEN_MODE op, DWORD dwMaximumSize)
 void v00_header_t::set_inuse(const LONG64 bytes_inuse, const LONG64 diff_started) noexcept
 {
   InterlockedExchange64(&m_inuse_bytes, (LONG64)bytes_inuse);
-  InterlockedExchange64(&m_inuse_diff_ns, (LONG64)diff_started);
+  InterlockedExchange64(&m_sequence, (LONG64)diff_started);
 }
 
 void v00_header_t::set_free() noexcept
 {
   InterlockedExchange64(&m_inuse_bytes, (LONG64)0);
-  InterlockedExchange64(&m_inuse_diff_ns, (LONG64)0);
+  InterlockedExchange64(&m_sequence, (LONG64)0);
 }
 
 v00_sync_t::v00_sync_t(OPEN_MODE op, const v00_names_t& nm)
@@ -287,8 +287,9 @@ v00_pool_t::~v00_pool_t()
 }
 
 v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
-  : m_pool(pool)
+  : m_pool(pool), m_next_sequence(0)
 {
+  m_processed.reserve(180000000);
   m_stop_event = CreateEventA(NULL, false/*auto reset*/, false /*nonsignaled*/, NULL);
   if (m_stop_event == NULL)
   {
@@ -339,8 +340,6 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         if (ret == WAIT_OBJECT_0)
           return true;
 
-        m_ordered_consumption_sequence.resize(0);
-
         for (DWORD first_idx = ret - WAIT_OBJECT_0 - 1/*first event is "full stop" signaling event*/; 
           first_idx < m_pool->m_buffers.size();
           first_idx++)
@@ -358,10 +357,37 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
             return x1.second.sequence < x2.second.sequence;
           });
 
-        for(const auto& x : m_ordered_consumption_sequence)
+        bool ready_to_process = true;
+        auto nx = m_next_sequence;
+        for (const auto& x : m_ordered_consumption_sequence)
         {
-          consume_one(x.second.m_span, x.second.m_span + x.second.free_bytes);
-          m_pool->m_buffers[x.first]->clear();
+          if(nx != x.second.sequence)
+          {
+            ready_to_process = false;
+            break;
+          }
+          nx++;
+        }
+
+        if(!ready_to_process && m_ordered_consumption_sequence.size() >= m_sync_handles.size())
+          ready_to_process = true;
+
+        // ensure no pending messages are in WaitForMultipleObjectsEx queue
+        if(ready_to_process)
+        {
+          LONG64 prev = -1;
+          for (const auto& x : m_ordered_consumption_sequence)
+          {
+            m_processed.push_back(x.second.sequence);
+            if(prev == x.second.sequence)
+              continue;
+            consume_one(x.second.m_span, x.second.m_span + x.second.free_bytes);
+            m_pool->m_buffers[x.first]->clear();
+            m_next_sequence = x.second.sequence + 1;
+            prev = x.second.sequence;
+          }
+          m_next_sequence = m_ordered_consumption_sequence.back().second.sequence + 1;
+          m_ordered_consumption_sequence.resize(0);
         }
 
         continue;
