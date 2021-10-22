@@ -26,6 +26,8 @@ namespace neutrino
                     std::size_t m_optimistic_lock_retries{ 1000 };
                 } const m_params;
 
+                std::atomic_uint64_t m_dirty_count;
+
                 optimistic_mt_shared_memory_endpoint_proxy_t(
                     const shared_memory_endpoint_proxy_params_t& po
                     , std::shared_ptr<shared_memory::pool_t> pool

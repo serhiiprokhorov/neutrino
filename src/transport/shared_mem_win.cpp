@@ -306,6 +306,7 @@ v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
   }
 
   m_ordered_consumption_sequence.reserve(m_pool->m_buffers.size());
+  m_uniue_ordered_consumption_sequence.reserve(m_pool->m_buffers.size());
 }
 
 v00_async_listener_t::~v00_async_listener_t()
@@ -351,43 +352,43 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           m_ordered_consumption_sequence.emplace_back(std::size_t(first_idx), b->get_data());
         }
 
+        if(m_ordered_consumption_sequence.empty())
+          continue;
+
         std::stable_sort(m_ordered_consumption_sequence.begin(), m_ordered_consumption_sequence.end(),
           [](const auto & x1, const auto & x2)
           {
             return x1.second.sequence < x2.second.sequence;
           });
 
-        bool ready_to_process = true;
-        auto nx = m_next_sequence;
-        for (const auto& x : m_ordered_consumption_sequence)
-        {
-          if(nx != x.second.sequence)
-          {
-            ready_to_process = false;
-            break;
-          }
-          nx++;
-        }
+        m_uniue_ordered_consumption_sequence.resize(0);
+        std::unique_copy(
+          m_ordered_consumption_sequence.begin(), 
+          m_ordered_consumption_sequence.end(),
+          std::back_inserter(m_uniue_ordered_consumption_sequence));
 
-        if(!ready_to_process && m_ordered_consumption_sequence.size() >= m_sync_handles.size())
+        bool ready_to_process = m_next_sequence == m_uniue_ordered_consumption_sequence.front().second.sequence;
+        if(ready_to_process)
+          ready_to_process = (m_next_sequence + m_uniue_ordered_consumption_sequence.size() - 1) == m_uniue_ordered_consumption_sequence.back().second.sequence;
+
+        if(!ready_to_process && m_uniue_ordered_consumption_sequence.size() >= m_sync_handles.size())
           ready_to_process = true;
 
         // ensure no pending messages are in WaitForMultipleObjectsEx queue
         if(ready_to_process)
         {
-          LONG64 prev = -1;
-          for (const auto& x : m_ordered_consumption_sequence)
+          for (const auto& x : m_uniue_ordered_consumption_sequence)
           {
             m_processed.push_back(x.second.sequence);
-            if(prev == x.second.sequence)
-              continue;
             consume_one(x.second.m_span, x.second.m_span + x.second.free_bytes);
             m_pool->m_buffers[x.first]->clear();
-            m_next_sequence = x.second.sequence + 1;
-            prev = x.second.sequence;
           }
-          m_next_sequence = m_ordered_consumption_sequence.back().second.sequence + 1;
+          m_next_sequence = m_uniue_ordered_consumption_sequence.back().second.sequence + 1;
           m_ordered_consumption_sequence.resize(0);
+        }
+        else
+        {
+          continue;
         }
 
         continue;
