@@ -40,8 +40,8 @@ namespace neutrino
               //    
                 auto bytes_to_copy = e - p;
 
-                if (!bytes_to_copy)
-                  return true;
+                std::size_t retries_on_overflow{ m_shared_memory_endpoint_proxy_params.m_retries_on_overflow };
+                const std::chrono::microseconds sleep_on_overflow{ m_shared_memory_endpoint_proxy_params.m_sleep_on_overflow };
 
                 auto optimistic_lock_retries_on_frame_add = m_params.m_optimistic_lock_retries;
                 while (optimistic_lock_retries_on_frame_add--)
@@ -59,46 +59,59 @@ namespace neutrino
                       {
                         //safe to copy: a region [buf + bytes_unused ... bytes_to_copy) is now in exclusive use of the current thread
                         std::copy_n(p, bytes_to_copy, span.m_span);
-                        if (span.free_bytes > m_shared_memory_endpoint_proxy_params.m_message_buf_watermark)
+                        if(bytes_to_copy < span.free_bytes)
                           return true;
-                        bytes_to_copy = 0; // about to repeat whole loop for buffer cleanup, prevent write the data once agan
+
+                        // we appear here with buffer completely full and so can be dumped immediately  
+                        // for this we drop bytes_to_copy to zero emulating flush command (consume of zero bytes is recognized as flush)
+                        bytes_to_copy = 0; 
                       }
                     }
                     {
                       shared_memory::buffer_t* next_buf = m_pool->next_available(active_buf);
 
                       if(next_buf == active_buf)
-                        return false; // TODO: handle overflow
-
-                      if(!m_pool->m_buffer.compare_exchange_weak(active_buf, next_buf))
                       {
-                        // the code may appear here from two different states:
-                        // - bytes_to_copy != 0, meaning the buffer was full and we are trying to pick up another buffer to put the data in
-                        // - bytes_to_copy == 0, meaning we have copied the data and the buffer has exceeded the watermark
-                        //
-                        // in former case we have have to repeat, the data yet not stored
-                        // in latter case we have nothing to do, concurrent thread done everithing
-                        if(!bytes_to_copy)
-                          return true; // other thread has changed m_pool->m_buffer and made it dirty already, nothing to do 
-                        // other thread has already switched the buffer
-                        std::this_thread::yield();
+                        // buffer chain is full, no buffer is available
+                        // host app is expected to process them eventually
+                        // lets wait for a configured timeout and retry cycles
+                        if (!retries_on_overflow)
+                        {
+                          return false; // TODO: handle overflow
+                        }
+                        retries_on_overflow--;
+                        std::this_thread::sleep_for(sleep_on_overflow);
                         continue;
                       }
-                      // ---------------------------------------------------
-                      //
-                      // exclusive part, protected by compare_exchange_weak
-                      //
-                      // ---------------------------------------------------
 
-                      // it is now safe to make active_buf dirty and sync with host app
-                      // because no other thread access active_buf with prof: we just updated m_current_buf with compare_exchange_weak
-                      active_buf->dirty(m_dirty_count++);
+                      if(m_pool->m_buffer.compare_exchange_weak(active_buf, next_buf))
+                      {
+                        // failure to perform compare_exchange_weak means the concurrent thread has it done already: active_buf has been decalred dirty and m_pool->m_buffer now contains next available buffer
+                        // compare_exchange_weak failure may occur with the code in two different states:
+                        // - bytes_to_copy != 0 means we still have some data to store and the active_buf is full and we are trying to pick up another buffer to put the data in
+                        //    compare_exchange_weak failure indicates concurrent thread has alredy switched the buffer, we have to repeat the loop since we still have the data to store
+                        // - bytes_to_copy == 0, means we have no data and just want to declare active_buf dirty (flush it) 
+                        //    compare_exchange_weak failure indicates concurrent thread has it done alredy as part of the buffer switch, we have nothing to do
+                        //
+                        // success to perform compare_exchange_weak means we are in exclusive use of active_buf
+                        // no other thread can access it because the buffer is full and the span returned by active_buf->get_span(bytes_to_copy) would always be empty
+                        // ---------------------------------------------------
+                        //
+                        // exclusive part, protected by compare_exchange_weak
+                        //
+                        // ---------------------------------------------------
 
-                      std::this_thread::yield();
-                      continue;
+                        // it is now safe to make active_buf dirty and sync with host app
+                        // because no other thread access active_buf with prof: we just updated m_current_buf with compare_exchange_weak
+                        active_buf->dirty(m_dirty_count++);
+                      }
+
+                      // with no bytes to copy we have nothing to do on retry: either this thread or concurrect thread has declared active_buf->dirty(m_dirty_count++);
+                      if (!bytes_to_copy)
+                        return true;
                     }
 
-                    return true;
+                    std::this_thread::yield();
                 }
                 return false; // expired retry counter, indicates overflow, TODO: handle overflow
             }

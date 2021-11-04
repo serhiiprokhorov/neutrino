@@ -34,14 +34,14 @@ namespace neutrino
                   shared_memory::buffer_t* next_buffer = m_pool->next_available(buffer);
                   if(next_buffer == buffer)
                   {
-                    std::size_t m_retries_on_overflow{ 10 };
-                    std::chrono::microseconds m_sleep_on_overflow{ std::chrono::milliseconds{10} };
-                    if(!m_retries_on_overflow)
+                    std::size_t retries_on_overflow{ m_shared_memory_endpoint_proxy_params.m_retries_on_overflow };
+                    std::chrono::microseconds sleep_on_overflow{ m_shared_memory_endpoint_proxy_params.m_sleep_on_overflow };
+                    if(!retries_on_overflow)
                     {
                       return false; // TODO: handle overflow
                     }
-                    m_retries_on_overflow--;
-                    std::this_thread::sleep_for(m_sleep_on_overflow);
+                    retries_on_overflow--;
+                    std::this_thread::sleep_for(sleep_on_overflow);
                   }
                   else
                   {
