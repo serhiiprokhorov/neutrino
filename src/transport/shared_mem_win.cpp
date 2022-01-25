@@ -289,7 +289,7 @@ v00_pool_t::~v00_pool_t()
 v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
   : m_pool(pool), m_next_sequence(0)
 {
-  m_processed.reserve(180000000);
+  //m_processed.reserve(180000000);
   m_stop_event = CreateEventA(NULL, false/*auto reset*/, false /*nonsignaled*/, NULL);
   if (m_stop_event == NULL)
   {
@@ -314,10 +314,13 @@ v00_async_listener_t::~v00_async_listener_t()
   CloseHandle(m_stop_event);
 }
 
-std::function<void()> v00_async_listener_t::start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one)
+std::function<void()> v00_async_listener_t::start(std::function <void(const uint64_t sequence, const uint8_t* p, const uint8_t* e)> consume_one)
 {
   const auto runner_f = [this, consume_one]()
   {
+    decltype(m_ordered_consumption_sequence) to_be_processed_buf;
+    to_be_processed_buf.reserve(m_ordered_consumption_sequence.capacity());
+
     while (true)
     {
       DWORD ret = ::WaitForMultipleObjectsEx(
@@ -361,6 +364,32 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
             return x1.second.sequence < x2.second.sequence;
           });
 
+        to_be_processed_buf.clear();
+        auto it = m_ordered_consumption_sequence.begin();
+        for (; it != m_ordered_consumption_sequence.end(); ++it)
+        {
+          if (m_next_sequence > it->second.sequence)
+            continue;
+          if (m_next_sequence != it->second.sequence)
+            break;
+          ++m_next_sequence;
+          consume_one(it->second.m_span, it->second.m_span + it->second.free_bytes);
+          m_pool->m_buffers[it->first]->clear();
+        }
+
+        if(m_ordered_consumption_sequence.begin() == it)
+          continue;
+
+        if (m_ordered_consumption_sequence.end() == it)
+        {
+          m_ordered_consumption_sequence.clear();
+          continue;
+        }
+
+        std::copy(it, m_ordered_consumption_sequence.end(), std::back_inserter(to_be_processed_buf));
+        m_ordered_consumption_sequence.swap(to_be_processed_buf);
+
+        /*
         m_uniue_ordered_consumption_sequence.resize(0);
         std::unique_copy(
           m_ordered_consumption_sequence.begin(), 
@@ -379,7 +408,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         {
           for (const auto& x : m_uniue_ordered_consumption_sequence)
           {
-            m_processed.push_back(x.second.sequence);
+            //m_processed.push_back(x.second.sequence);
             consume_one(x.second.m_span, x.second.m_span + x.second.free_bytes);
             m_pool->m_buffers[x.first]->clear();
           }
@@ -390,6 +419,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         {
           continue;
         }
+        */
 
         continue;
       }

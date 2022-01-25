@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <future>
+#include <array>
 
 #include <neutrino_transport_shared_mem_endpoint_proxy_st.hpp>
 #include <neutrino_transport_shared_mem_endpoint_proxy_mt.hpp>
@@ -223,109 +224,129 @@ class mutilthreaded_producer : public neutrino_transport_shared_mem_endpoint_pro
 public:
   void validate_producer(neutrino::impl::transport::endpoint_proxy_t& x)
   {
-    ASSERT_TRUE(false) << "not implemented"; 
+    //validate_producer(x, 1);
+    //validate_producer(x, 2);
+    validate_producer(x, 0xf);
+  }
+
+  void validate_producer(neutrino::impl::transport::endpoint_proxy_t& x, const std::size_t num_threads)
+  {
+    std::cerr << "=============> validate_producer(" << num_threads << ")" << std::endl;
+
+    std::vector<uint8_t> thread_current(num_threads, 0 ); // very last received item per thread
+    std::vector<std::pair<uint8_t /*thread range min*/, uint8_t /*thread range max*/>> thread_range(num_threads, {0, 0});
+    thread_range[0].first = 0;
+    thread_range[0].second = uint8_t{0xff} / num_threads;
+
+    for(size_t i = 1; i < num_threads; i++)
+    {
+      thread_range[i].first = thread_range[i-1].second + 1;
+      thread_range[i].second = thread_range[i].first + thread_range[0].second;
+
+      thread_current[i] = thread_range[i].first;
+    }
+
     neutrino::impl::memory::win_shared_mem::v00_async_listener_t listener(host_pool);
 
-    std::atomic<std::ptrdiff_t> actual_consumed_cc = 0;
-    std::vector<uint8_t> consumed_list;
-    consumed_list.resize(expected_data.size());
-    uint8_t* pStart = &(consumed_list[0]);
-    uint8_t* pData = pStart;
+    std::atomic<std::ptrdiff_t> consumed_cc = 0;
 
     uint64_t sequence_mismatch = 0;
 
-    const uint8_t* pX = &(expected_data[0]);
     auto at_cancel = listener.start(
-      [this, &sequence_mismatch, &consumed_list, &actual_consumed_cc, &pData, &pStart, &pX](const uint8_t* p, const uint8_t* e)
+      [this, num_threads, &thread_range, &thread_current, &sequence_mismatch, &consumed_cc](const uint8_t* p, const uint8_t* e)
       {
-        const auto bytes = e - p;
-        memmove(pData, p, bytes);
-        pData += bytes;
-        actual_consumed_cc += bytes;
-
-        for (std::size_t x = 0; x < bytes; x++)
+        do
         {
-          if (pX[x] != p[x])
+          size_t range = 0;
+          while(*p > thread_range[range].second)
           {
+            range++;
+          }
+          std::cerr << "    range " << range << std::endl;
+          if(range >= num_threads)
+          {
+            // out of range
             sequence_mismatch++;
+            return;
+          }
+          else
+          {
+            consumed_cc++;
+            std::cerr << "    p " << uint32_t(*p) << "   thread_current[range]=" << uint32_t(thread_current[range]) << std::endl;
+            if(thread_current[range]++ != *p)
+            {
+              sequence_mismatch++;
+            }
+            if(thread_current[range] == thread_range[range].second)
+              thread_current[range] = thread_range[range].first;
           }
         }
+        while (++p < e);
 
-        pX += bytes;
+        consumed_cc += (e - p);
       }
     );
 
     std::promise<void> promise_start_all;
-    auto shared_future_start_all = promise_start_all.get_future().share();
+    std::shared_future<void> shared_future_start_all(promise_start_all.get_future());
 
-    std::future<std::ptrdiff_t> futures[10];
-    const std::size_t num_threads = sizeof(futures) / sizeof(futures[0]);
-    std::ptrdiff_t actual_transmitted_cc = 0;
+    //std::vector<std::future<std::ptrdiff_t>> futures(num_threads, std::future<std::ptrdiff_t>{});
+    std::vector<std::future<std::ptrdiff_t>> futures;
+    futures.reserve(num_threads);
 
     for (std::size_t t = 0; t < num_threads; t++)
     {
-      SCOPED_TRACE(std::to_string(t));
-      futures[t] = std::async(
+      futures.emplace_back(std::async(
         std::launch::async,
-        [this, &x, &actual_consumed_cc, &shared_future_start_all]()
+        [this, &thread_range, &x, &consumed_cc, &shared_future_start_all, t]()
         {
+          SCOPED_TRACE(std::to_string(t));
           // barrier-like code to sync multiple producers
           shared_future_start_all.wait();
           shared_future_start_all.get();
 
-          std::ptrdiff_t produced_cc = 0;
-          for (; produced_cc < expected_data.size() - 1; produced_cc++)
-          {
-            EXPECT_TRUE(x.consume(&(expected_data[produced_cc]), &(expected_data[produced_cc + 1]))) << "consumee failure at " << produced_cc;
-          }
-          EXPECT_TRUE(x.consume(&(expected_data[0]), &(expected_data[0]))) << "flush failure";
+          std::cerr << t << " started" << std::endl;
 
-          return produced_cc;
+          //const std::ptrdiff_t symbols_per_thread = 100000000;
+          const std::ptrdiff_t symbols_per_thread = 10;
+          uint8_t to_consume = thread_range[t].first;
+          for (std::ptrdiff_t cc = 0; cc < symbols_per_thread; cc++)
+          {
+            EXPECT_TRUE(x.consume(&to_consume, (&to_consume) + 1)) << "thread " << t << " consumee failure at " << cc;
+            //if(cc % (symbols_per_thread / 1000) == 0) std::cerr << t << " " << cc << std::endl;
+            if(++to_consume == thread_range[t].second)
+              to_consume = thread_range[t].first;
+          }
+          // 0 bytes, flush 
+          EXPECT_TRUE(x.consume(&to_consume, &to_consume)) << "thread " << t << " flush failure";
+          
+          std::cerr << t << " stopped" << std::endl;
+          return symbols_per_thread;
         }
-      );
+      ));
     }
 
+    std::cerr << "start producers" << std::endl;
     promise_start_all.set_value();
 
     const auto timedout = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
 
-    std::size_t still_waiting = 0;
-    while (timedout > std::chrono::steady_clock::now())
-    {
-      still_waiting = 0;
-      for (auto& f : futures)
-      {
-        if (!f.valid())
-          continue;
+    std::this_thread::sleep_for(std::chrono::seconds{20});
 
-        const auto fr = f.wait_for(std::chrono::microseconds{ 1 });
-        if (fr == std::future_status::timeout)
-        {
-          still_waiting++;
-        }
-        else
-          if (fr == std::future_status::ready)
-          {
-            actual_transmitted_cc += f.get();
-          }
-      }
-      if (!still_waiting)
-        break;
+    std::ptrdiff_t transmitted_cc = 0;
+    size_t i = 0;
+    for(auto& f : futures)
+    {
+      std::cerr << i << " wait" << std::endl;
+      const auto status = f.wait_until(timedout);
+      ASSERT_TRUE(status == std::future_status::ready) << "timeout thread " << i;
+      transmitted_cc += f.get();
+      std::cerr << i << " transmitted " << transmitted_cc << std::endl;
+      i++;
     }
 
-    ASSERT_EQ(0, still_waiting) << "timeout";
-
-    EXPECT_EQ(0, sequence_mismatch);
-
-    {
-      const auto actual_consumed = actual_consumed_cc.load();
-      ASSERT_EQ(actual_consumed, actual_transmitted_cc);
-
-      for (std::size_t i = 0; i < actual_consumed; i++)
-      {
-        ASSERT_EQ(consumed_list[i], expected_data[i]) << i;
-      }
-    }
+    EXPECT_EQ(0, sequence_mismatch);   
+    EXPECT_EQ(consumed_cc, transmitted_cc);
 
     at_cancel();
   }
@@ -333,7 +354,6 @@ public:
 
 TEST_F(mutilthreaded_producer, exclusive_mt_shared_memory_endpoint_proxy_t)
 {
-  ASSERT_TRUE(false) << "not implemented";
   neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
   params.m_message_buf_watermark = 0; // TODO: not in use
   neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);

@@ -146,7 +146,7 @@ namespace neutrino
                   ~v00_async_listener_t();
 
                   // starts new thread, returns cancellation function
-                  std::function<void()> start(std::function <void(const uint8_t* p, const uint8_t* e)> consume_one);
+                  std::function<void()> start(std::function <void(const uint64_t sequence, const uint8_t* p, const uint8_t* e)> consume_one);
                 };
             };
         }
