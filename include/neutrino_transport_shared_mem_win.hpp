@@ -136,11 +136,13 @@ namespace neutrino
                   std::vector<HANDLE> m_sync_handles;
                   HANDLE m_stop_event;
                   std::shared_ptr<v00_pool_t> m_pool;
-                  std::vector<std::pair<std::size_t/*index of v00_pool_t::m_buffers*/, shared_memory::buffer_t::span_t>> 
-                    m_ordered_consumption_sequence, m_uniue_ordered_consumption_sequence;
-                  LONG64 m_next_sequence;
 
-                  std::vector<LONG64> m_processed;
+                  struct parameters_t
+                  {
+                    std::size_t m_ready_data_size; // size of m_ready_data, bigger size allows avoid copy of span_t
+                  };
+                  
+                  std::shared_ptr<parameters_t> m_params;
 
                   v00_async_listener_t(std::shared_ptr<v00_pool_t> pool);
                   ~v00_async_listener_t();

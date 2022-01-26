@@ -123,7 +123,7 @@ public:
     const uint8_t* pX = &(expected_data[0]);
     // listener.start returns a functor which, when called, instructs listener to exit
     auto at_cancel = listener.start(
-      [this, &sequence_mismatch, &consumed_list, &actual_consumed_cc, &pData, &pStart, &pX](const uint8_t* p, const uint8_t* e)
+      [this, &sequence_mismatch, &consumed_list, &actual_consumed_cc, &pData, &pStart, &pX](uint64_t sequence, const uint8_t* p, const uint8_t* e)
       {
         // this function is called when the listener gets another portion of data
         const auto bytes = e - p;
@@ -226,6 +226,7 @@ public:
   {
     //validate_producer(x, 1);
     //validate_producer(x, 2);
+    //validate_producer(x, 10);
     validate_producer(x, 0xf);
   }
 
@@ -241,7 +242,7 @@ public:
     for(size_t i = 1; i < num_threads; i++)
     {
       thread_range[i].first = thread_range[i-1].second + 1;
-      thread_range[i].second = thread_range[i].first + thread_range[0].second;
+      thread_range[i].second = (uint8_t{0xff} - thread_range[i].first) > thread_range[0].second ? thread_range[i].first + thread_range[0].second : uint8_t{ 0xff };
 
       thread_current[i] = thread_range[i].first;
     }
@@ -253,7 +254,7 @@ public:
     uint64_t sequence_mismatch = 0;
 
     auto at_cancel = listener.start(
-      [this, num_threads, &thread_range, &thread_current, &sequence_mismatch, &consumed_cc](const uint8_t* p, const uint8_t* e)
+      [this, num_threads, &thread_range, &thread_current, &sequence_mismatch, &consumed_cc](uint64_t sequence, const uint8_t* p, const uint8_t* e)
       {
         do
         {
@@ -262,7 +263,6 @@ public:
           {
             range++;
           }
-          std::cerr << "    range " << range << std::endl;
           if(range >= num_threads)
           {
             // out of range
@@ -272,7 +272,7 @@ public:
           else
           {
             consumed_cc++;
-            std::cerr << "    p " << uint32_t(*p) << "   thread_current[range]=" << uint32_t(thread_current[range]) << std::endl;
+            //std::cerr << "    p " << uint32_t(*p) << "   thread_current[range]=" << uint32_t(thread_current[range]) << std::endl;
             if(thread_current[range]++ != *p)
             {
               sequence_mismatch++;
@@ -284,13 +284,13 @@ public:
         while (++p < e);
 
         consumed_cc += (e - p);
+        std::cerr << "  sequence " << sequence << " consumed_cc " << consumed_cc << std::endl;
       }
     );
 
     std::promise<void> promise_start_all;
     std::shared_future<void> shared_future_start_all(promise_start_all.get_future());
 
-    //std::vector<std::future<std::ptrdiff_t>> futures(num_threads, std::future<std::ptrdiff_t>{});
     std::vector<std::future<std::ptrdiff_t>> futures;
     futures.reserve(num_threads);
 
@@ -329,24 +329,34 @@ public:
     std::cerr << "start producers" << std::endl;
     promise_start_all.set_value();
 
-    const auto timedout = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
-
-    std::this_thread::sleep_for(std::chrono::seconds{20});
+    const auto timedout_producer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
 
     std::ptrdiff_t transmitted_cc = 0;
     size_t i = 0;
     for(auto& f : futures)
     {
       std::cerr << i << " wait" << std::endl;
-      const auto status = f.wait_until(timedout);
+      const auto status = f.wait_until(timedout_producer);
       ASSERT_TRUE(status == std::future_status::ready) << "timeout thread " << i;
       transmitted_cc += f.get();
       std::cerr << i << " transmitted " << transmitted_cc << std::endl;
       i++;
     }
 
-    EXPECT_EQ(0, sequence_mismatch);   
-    EXPECT_EQ(consumed_cc, transmitted_cc);
+    const auto timedout_consumer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
+    while(timedout_consumer > std::chrono::steady_clock::now())
+    {
+      std::cerr << " consumed_cc " << consumed_cc << std::endl;
+      if(consumed_cc == transmitted_cc)
+        break;
+      std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+
+    // TODO review sync between consumer and producer
+    //std::this_thread::sleep_for(std::chrono::seconds{ 2000 });
+
+    EXPECT_EQ(0, sequence_mismatch);
+    EXPECT_EQ(consumed_cc+1, transmitted_cc);
 
     at_cancel();
   }

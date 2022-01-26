@@ -114,7 +114,7 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
   std::atomic_uint32_t actual_buffers_received{0};
 
   auto at_cancel = consumer.start(
-    [&consumed_list, &actual_buffers_received](const uint8_t* p, const uint8_t* e)
+    [&consumed_list, &actual_buffers_received](uint64_t sequence, const uint8_t* p, const uint8_t* e)
     {
       consumed_list.emplace_back();
       consumed_list.back().assign(p, e);

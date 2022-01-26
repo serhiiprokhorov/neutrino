@@ -55,7 +55,7 @@ v00_header_t::v00_header_t(OPEN_MODE op, DWORD dwMaximumSize)
         m_hostPID = GetCurrentProcessId();
         m_dwMaximumSize = dwMaximumSize;
         m_inuse_bytes = 0;
-        m_sequence = 0;
+        m_sequence = 1; // sequence 0 is reserved, consumer uses it as "span-is-free" indicator
     }
     else
     {
@@ -287,8 +287,12 @@ v00_pool_t::~v00_pool_t()
 }
 
 v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
-  : m_pool(pool), m_next_sequence(0)
+  : m_pool(pool)
 {
+  // defaults
+  m_params = std::make_shared<parameters_t>();
+  m_params->m_ready_data_size = 100;
+
   //m_processed.reserve(180000000);
   m_stop_event = CreateEventA(NULL, false/*auto reset*/, false /*nonsignaled*/, NULL);
   if (m_stop_event == NULL)
@@ -305,8 +309,6 @@ v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
     m_sync_handles.push_back(s->m_hevent);
   }
 
-  m_ordered_consumption_sequence.reserve(m_pool->m_buffers.size());
-  m_uniue_ordered_consumption_sequence.reserve(m_pool->m_buffers.size());
 }
 
 v00_async_listener_t::~v00_async_listener_t()
@@ -318,8 +320,11 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
 {
   const auto runner_f = [this, consume_one]()
   {
-    decltype(m_ordered_consumption_sequence) to_be_processed_buf;
-    to_be_processed_buf.reserve(m_ordered_consumption_sequence.capacity());
+    uint64_t read_data_offset = 0;
+    uint64_t next_sequence = 1;
+
+    std::vector<std::pair<std::size_t, shared_memory::buffer_t::span_t>> ready_data;
+    ready_data.resize(m_pool->m_syncs.size() * m_params->m_ready_data_size);
 
     while (true)
     {
@@ -352,74 +357,35 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           if (b->is_clean())
             continue;
 
-          m_ordered_consumption_sequence.emplace_back(std::size_t(first_idx), b->get_data());
-        }
-
-        if(m_ordered_consumption_sequence.empty())
-          continue;
-
-        std::stable_sort(m_ordered_consumption_sequence.begin(), m_ordered_consumption_sequence.end(),
-          [](const auto & x1, const auto & x2)
+          const auto s = b->get_data();
+          if(next_sequence > s.sequence)
           {
-            return x1.second.sequence < x2.second.sequence;
-          });
-
-        to_be_processed_buf.clear();
-        auto it = m_ordered_consumption_sequence.begin();
-        for (; it != m_ordered_consumption_sequence.end(); ++it)
-        {
-          if (m_next_sequence > it->second.sequence)
-            continue;
-          if (m_next_sequence != it->second.sequence)
-            break;
-          ++m_next_sequence;
-          consume_one(it->second.m_span, it->second.m_span + it->second.free_bytes);
-          m_pool->m_buffers[it->first]->clear();
-        }
-
-        if(m_ordered_consumption_sequence.begin() == it)
-          continue;
-
-        if (m_ordered_consumption_sequence.end() == it)
-        {
-          m_ordered_consumption_sequence.clear();
-          continue;
-        }
-
-        std::copy(it, m_ordered_consumption_sequence.end(), std::back_inserter(to_be_processed_buf));
-        m_ordered_consumption_sequence.swap(to_be_processed_buf);
-
-        /*
-        m_uniue_ordered_consumption_sequence.resize(0);
-        std::unique_copy(
-          m_ordered_consumption_sequence.begin(), 
-          m_ordered_consumption_sequence.end(),
-          std::back_inserter(m_uniue_ordered_consumption_sequence));
-
-        bool ready_to_process = m_next_sequence == m_uniue_ordered_consumption_sequence.front().second.sequence;
-        if(ready_to_process)
-          ready_to_process = (m_next_sequence + m_uniue_ordered_consumption_sequence.size() - 1) == m_uniue_ordered_consumption_sequence.back().second.sequence;
-
-        if(!ready_to_process && m_uniue_ordered_consumption_sequence.size() >= m_sync_handles.size())
-          ready_to_process = true;
-
-        // ensure no pending messages are in WaitForMultipleObjectsEx queue
-        if(ready_to_process)
-        {
-          for (const auto& x : m_uniue_ordered_consumption_sequence)
-          {
-            //m_processed.push_back(x.second.sequence);
-            consume_one(x.second.m_span, x.second.m_span + x.second.free_bytes);
-            m_pool->m_buffers[x.first]->clear();
+            // this buffer is expired because next expected sequence is greater than buffer's sequence
+            b->clear();
           }
-          m_next_sequence = m_uniue_ordered_consumption_sequence.back().second.sequence + 1;
-          m_ordered_consumption_sequence.resize(0);
+          else
+          {
+            auto& r = ready_data[read_data_offset + (s.sequence - next_sequence)];
+            r.first = first_idx;
+            r.second = s;
+          }
         }
-        else
+
+        while(true)
         {
-          continue;
+          auto& s = ready_data[read_data_offset];
+          if(s.second.sequence != next_sequence)
+            break;
+          consume_one(s.second.sequence, s.second.m_span, s.second.m_span + s.second.free_bytes);
+          s.second.sequence = 0;
+          m_pool->m_buffers[s.first]->clear();
+
+          next_sequence++;
+          if((++read_data_offset) + m_pool->m_syncs.size() > ready_data.size())
+          {
+            read_data_offset = 0;
+          }
         }
-        */
 
         continue;
       }
