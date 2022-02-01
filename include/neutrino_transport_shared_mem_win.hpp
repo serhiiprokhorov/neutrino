@@ -94,6 +94,7 @@ namespace neutrino
                         , dirty_buffer_counter
                       );
                       m_occupied = 0;
+                      std::cerr << "dbc " << dirty_buffer_counter << std::endl;
                       m_sync.dirty();
                     }
                     void clear() noexcept final { 

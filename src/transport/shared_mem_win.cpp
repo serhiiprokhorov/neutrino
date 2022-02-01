@@ -3,9 +3,35 @@
 #include <cstdio>
 #include <cassert>
 #include <iostream>
+#include <array>
+#include <algorithm>
 #include <neutrino_transport_shared_mem_win.hpp>
 
 const DWORD expected_layout_version = 0;
+
+namespace
+{
+  uint64_t cc_buf_reported_clean{ 0 };
+  uint64_t cc_buf_reported_dirty{ 0 };
+  uint64_t cc_buf_reported_inuse{ 0 };
+  uint64_t cc_buf_reported_setfree{ 0 };
+  uint64_t cc_buf_is_clean_true{ 0 };
+  uint64_t cc_buf_is_clean_false{ 0 };
+  uint64_t cc_consumer_wait_ret{ 0 };
+  uint64_t cc_consumer_wait_timeout{ 0 };
+  uint64_t cc_consumer_buf_outdated_clear{ 0 };
+  uint64_t cc_consumer_buf_ready{ 0 };
+  uint64_t cc_consumer_buf_consumed{ 0 };
+  uint64_t cc_consumer_buf_clear{ 0 };
+  uint64_t cc_consumer_continue{ 0 };
+  uint64_t cc_consumer_buf_missed{ 0 };
+
+  uint64_t cc_consumer_buf_event_new{ 0 };
+  uint64_t cc_consumer_buf_event_repeated{ 0 };
+  uint64_t cc_consumer_buf_event_outdated{ 0 };
+
+  std::array<uint64_t, 10000> cc_ready_data;
+}
 
 namespace neutrino
 {
@@ -78,12 +104,14 @@ void v00_header_t::set_inuse(const LONG64 bytes_inuse, const LONG64 diff_started
 {
   InterlockedExchange64(&m_inuse_bytes, (LONG64)bytes_inuse);
   InterlockedExchange64(&m_sequence, (LONG64)diff_started);
+  cc_buf_reported_inuse++;
 }
 
 void v00_header_t::set_free() noexcept
 {
   InterlockedExchange64(&m_inuse_bytes, (LONG64)0);
   InterlockedExchange64(&m_sequence, (LONG64)0);
+  cc_buf_reported_setfree++;
 }
 
 v00_sync_t::v00_sync_t(OPEN_MODE op, const v00_names_t& nm)
@@ -151,6 +179,7 @@ void v00_sync_t::dirty() noexcept
     {
         std::cerr << __FUNCTION__ << " SetEvent(m_event) GetLastError " << GetLastError();
     }
+    cc_buf_reported_dirty++;
 }
 
 void v00_sync_t::clear() noexcept
@@ -160,6 +189,7 @@ void v00_sync_t::clear() noexcept
     {
         std::cerr << __FUNCTION__ << " ResetEvent(m_event) GetLastError " << GetLastError();
     }
+    cc_buf_reported_clean++;
 }
 
 const bool v00_sync_t::is_clean() const noexcept
@@ -170,8 +200,10 @@ const bool v00_sync_t::is_clean() const noexcept
     std::cerr << __FUNCTION__ << " WaitForSingleObject WAIT_ABANDONED GetLastError " << GetLastError();
     break;
   case WAIT_TIMEOUT:
+    cc_buf_is_clean_true++;
     return true; // not signaled, the buffer is not ready to consume/data can be added into it
   }
+  cc_buf_is_clean_false++;
   return false; // signaled, the buffer had been marked as dirty/ready to consume
 }
 
@@ -291,7 +323,7 @@ v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
 {
   // defaults
   m_params = std::make_shared<parameters_t>();
-  m_params->m_ready_data_size = 100;
+  m_params->m_ready_data_size = 10000;
 
   //m_processed.reserve(180000000);
   m_stop_event = CreateEventA(NULL, false/*auto reset*/, false /*nonsignaled*/, NULL);
@@ -318,29 +350,59 @@ v00_async_listener_t::~v00_async_listener_t()
 
 std::function<void()> v00_async_listener_t::start(std::function <void(const uint64_t sequence, const uint8_t* p, const uint8_t* e)> consume_one)
 {
+  std::fill(cc_ready_data.begin(), cc_ready_data.end(), 0);
   const auto runner_f = [this, consume_one]()
   {
+    uint64_t write_ahead_queue_len = 0;
     uint64_t read_data_offset = 0;
     uint64_t next_sequence = 1;
 
-    std::vector<std::pair<std::size_t, shared_memory::buffer_t::span_t>> ready_data;
-    ready_data.resize(m_pool->m_syncs.size() * m_params->m_ready_data_size);
+    const auto buffers_size = m_pool->m_buffers.size();
 
+    std::vector<std::pair<std::size_t, shared_memory::buffer_t::span_t>> write_ahead_buffer;
+    write_ahead_buffer.resize(m_pool->m_syncs.size() * m_params->m_ready_data_size);
+    const auto write_ahead_buffer_size = write_ahead_buffer.size();
+
+    std::string problem; problem.reserve(1000);
     while (true)
     {
+      // validate no unexpected states
+      {
+        const uint64_t diff_clean_dirty_mismatch = 1000;
+        const uint64_t diff_ahead = 1000;
+        if(cc_buf_reported_dirty > cc_buf_reported_clean && (cc_buf_reported_dirty - cc_buf_reported_clean) > diff_clean_dirty_mismatch)
+        {
+          problem.append("deadlock detected by cc_buf_reported_dirty-cc_buf_reported_clean;");
+        }
+        if (cc_buf_reported_inuse > cc_buf_reported_setfree && (cc_buf_reported_inuse - cc_buf_reported_setfree) > diff_clean_dirty_mismatch)
+        {
+          problem.append("deadlock detected by cc_buf_reported_inuse-cc_buf_reported_setfree;");
+        }
+        if(!problem.empty())
+        {
+          //throw std::runtime_error(problem);
+          std::cerr << problem << std::endl;
+        }
+      }
+
       DWORD ret = ::WaitForMultipleObjectsEx(
         m_sync_handles.size(),
         &(m_sync_handles[0]),
         false /*bWaitAll*/,
-        INFINITE,
+        static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count()),
         false /*bAlertable*/
       );
+
+      cc_consumer_wait_ret++;
 
       if (ret == WAIT_FAILED)
         throw std::runtime_error(std::string(__FUNCTION__).append(" WaitForMultipleObjectsEx WAIT_FAILED GetLastError ").append(std::to_string(GetLastError())));
 
       if (ret == WAIT_TIMEOUT)
+      {
+        cc_consumer_wait_timeout++;
         continue; // TODO: prevent quick loop
+      }
 
       /*WAIT_OBJECT_0 .. WAIT_OBJECT_0 + m_sync_handles.size() - 1  */
       const DWORD WAIT_OBJECT_RANGE = WAIT_OBJECT_0 + m_sync_handles.size();
@@ -349,7 +411,8 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         if (ret == WAIT_OBJECT_0)
           return true;
 
-        for (DWORD first_idx = ret - WAIT_OBJECT_0 - 1/*first event is "full stop" signaling event*/; 
+        std::size_t idx = 0;
+        for (DWORD first_idx = ret - WAIT_OBJECT_0 - 1/*first event is "full stop" signaling event*/;
           first_idx < m_pool->m_buffers.size();
           first_idx++)
         {
@@ -361,32 +424,71 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           if(next_sequence > s.sequence)
           {
             // this buffer is expired because next expected sequence is greater than buffer's sequence
+            cc_consumer_buf_outdated_clear++;
             b->clear();
           }
           else
           {
-            auto& r = ready_data[read_data_offset + (s.sequence - next_sequence)];
-            r.first = first_idx;
-            r.second = s;
+            cc_consumer_buf_ready++;
+            idx = s.sequence - next_sequence;
+            cc_ready_data[idx]++;
+            auto& wahb = write_ahead_buffer[(read_data_offset + idx) % write_ahead_buffer_size];
+            if(wahb.second.sequence < s.sequence)
+            {
+              write_ahead_queue_len++;
+              cc_consumer_buf_event_new++;
+            }
+            else
+            if(wahb.second.sequence == s.sequence)
+            {
+              cc_consumer_buf_event_repeated++;
+            }
+            else
+            {
+              cc_consumer_buf_event_outdated++;
+            }
+            wahb = { first_idx , s };
+          }
+        }
+
+        if(write_ahead_queue_len > buffers_size * 2)
+        {
+          while (true)
+          {
+            auto& s = write_ahead_buffer[read_data_offset];
+            if (s.second.sequence)
+            {
+              cc_consumer_buf_missed += next_sequence == s.second.sequence ? 0 : 1;
+              next_sequence = s.second.sequence;
+              break;
+            }
+            else if(write_ahead_queue_len <= buffers_size * 2)
+              break;
+            write_ahead_queue_len--;
+            read_data_offset = (++read_data_offset) % write_ahead_buffer_size;
           }
         }
 
         while(true)
         {
-          auto& s = ready_data[read_data_offset];
+          auto& s = write_ahead_buffer[read_data_offset];
           if(s.second.sequence != next_sequence)
+          {
             break;
+          }
+          write_ahead_queue_len--;
+
+          cc_consumer_buf_consumed++;
           consume_one(s.second.sequence, s.second.m_span, s.second.m_span + s.second.free_bytes);
           s.second.sequence = 0;
+          cc_consumer_buf_clear++;
           m_pool->m_buffers[s.first]->clear();
 
           next_sequence++;
-          if((++read_data_offset) + m_pool->m_syncs.size() > ready_data.size())
-          {
-            read_data_offset = 0;
-          }
+          read_data_offset = (read_data_offset + 1) % write_ahead_buffer_size;
         }
 
+        cc_consumer_continue++;
         continue;
       }
 

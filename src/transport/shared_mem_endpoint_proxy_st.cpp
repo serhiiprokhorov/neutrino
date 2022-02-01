@@ -14,7 +14,9 @@ namespace neutrino
                 auto b = e - p;
 
                 shared_memory::buffer_t* buffer = m_pool->m_buffer.load(); // TODO: remove threaded stuff
+                bool mark_dirty = true;
 
+                std::size_t retries_on_overflow{ m_shared_memory_endpoint_proxy_params.m_retries_on_overflow };
                 do
                 {
                   if(b)
@@ -29,23 +31,27 @@ namespace neutrino
                     }
                   }
 
-                  buffer->dirty(m_dirty_buffer_counter++);
+                  if(mark_dirty)
+                  {
+                    mark_dirty = false;
+                    buffer->dirty(m_dirty_buffer_counter++);
+                  }
 
                   shared_memory::buffer_t* next_buffer = m_pool->next_available(buffer);
                   if(next_buffer == buffer)
                   {
-                    std::size_t retries_on_overflow{ m_shared_memory_endpoint_proxy_params.m_retries_on_overflow };
-                    std::chrono::microseconds sleep_on_overflow{ m_shared_memory_endpoint_proxy_params.m_sleep_on_overflow };
                     if(!retries_on_overflow)
                     {
                       return false; // TODO: handle overflow
                     }
                     retries_on_overflow--;
-                    std::this_thread::sleep_for(sleep_on_overflow);
+                    std::this_thread::sleep_for(m_shared_memory_endpoint_proxy_params.m_sleep_on_overflow);
                   }
                   else
                   {
                     m_pool->m_buffer = (buffer = next_buffer);
+                    mark_dirty = true;
+                    retries_on_overflow = m_shared_memory_endpoint_proxy_params.m_retries_on_overflow;
                   }
 
                 } while(b);

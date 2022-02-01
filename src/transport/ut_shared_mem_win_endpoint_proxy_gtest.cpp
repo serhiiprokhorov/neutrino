@@ -307,8 +307,8 @@ public:
 
           std::cerr << t << " started" << std::endl;
 
-          //const std::ptrdiff_t symbols_per_thread = 100000000;
-          const std::ptrdiff_t symbols_per_thread = 10;
+          const std::ptrdiff_t symbols_per_thread = 100000000;
+          //const std::ptrdiff_t symbols_per_thread = 10000;
           uint8_t to_consume = thread_range[t].first;
           for (std::ptrdiff_t cc = 0; cc < symbols_per_thread; cc++)
           {
@@ -343,7 +343,7 @@ public:
       i++;
     }
 
-    const auto timedout_consumer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
+    const auto timedout_consumer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 30000 };
     while(timedout_consumer > std::chrono::steady_clock::now())
     {
       std::cerr << " consumed_cc " << consumed_cc << std::endl;
@@ -356,7 +356,7 @@ public:
     //std::this_thread::sleep_for(std::chrono::seconds{ 2000 });
 
     EXPECT_EQ(0, sequence_mismatch);
-    EXPECT_EQ(consumed_cc+1, transmitted_cc);
+    EXPECT_EQ(consumed_cc, transmitted_cc);
 
     at_cancel();
   }
