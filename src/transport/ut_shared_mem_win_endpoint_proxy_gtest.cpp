@@ -307,8 +307,9 @@ public:
 
           std::cerr << t << " started" << std::endl;
 
-          const std::ptrdiff_t symbols_per_thread = 100000000;
+          //const std::ptrdiff_t symbols_per_thread = 100000000;
           //const std::ptrdiff_t symbols_per_thread = 10000;
+          const std::ptrdiff_t symbols_per_thread   = 100000;
           uint8_t to_consume = thread_range[t].first;
           for (std::ptrdiff_t cc = 0; cc < symbols_per_thread; cc++)
           {
@@ -329,7 +330,7 @@ public:
     std::cerr << "start producers" << std::endl;
     promise_start_all.set_value();
 
-    const auto timedout_producer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 60000 };
+    const auto timedout_producer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 120000 };
 
     std::ptrdiff_t transmitted_cc = 0;
     size_t i = 0;
@@ -337,28 +338,19 @@ public:
     {
       std::cerr << i << " wait" << std::endl;
       const auto status = f.wait_until(timedout_producer);
-      ASSERT_TRUE(status == std::future_status::ready) << "timeout thread " << i;
+      EXPECT_TRUE(status == std::future_status::ready) << "timeout thread " << i;
       transmitted_cc += f.get();
       std::cerr << i << " transmitted " << transmitted_cc << std::endl;
       i++;
     }
 
-    const auto timedout_consumer = std::chrono::steady_clock::now() + std::chrono::milliseconds{ 30000 };
-    while(timedout_consumer > std::chrono::steady_clock::now())
-    {
-      std::cerr << " consumed_cc " << consumed_cc << std::endl;
-      if(consumed_cc == transmitted_cc)
-        break;
-      std::this_thread::sleep_for(std::chrono::milliseconds{100});
-    }
-
-    // TODO review sync between consumer and producer
-    //std::this_thread::sleep_for(std::chrono::seconds{ 2000 });
+    auto cancelled = std::async(std::launch::async, [&at_cancel](){ at_cancel(); });
+    const auto status = cancelled.wait_until(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 30000 });
+    EXPECT_TRUE(status == std::future_status::ready) << "timeout cancelled ";
 
     EXPECT_EQ(0, sequence_mismatch);
     EXPECT_EQ(consumed_cc, transmitted_cc);
 
-    at_cancel();
   }
 };
 

@@ -363,6 +363,9 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
     write_ahead_buffer.resize(m_pool->m_syncs.size() * m_params->m_ready_data_size);
     const auto write_ahead_buffer_size = write_ahead_buffer.size();
 
+    bool stop_requested = false;
+    DWORD wait_timeout = static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count());
+
     std::string problem; problem.reserve(1000);
     while (true)
     {
@@ -389,7 +392,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         m_sync_handles.size(),
         &(m_sync_handles[0]),
         false /*bWaitAll*/,
-        static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count()),
+        wait_timeout,
         false /*bAlertable*/
       );
 
@@ -400,6 +403,9 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
 
       if (ret == WAIT_TIMEOUT)
       {
+        if(stop_requested) // stop was requested and no more events are pending
+          break;
+
         cc_consumer_wait_timeout++;
         continue; // TODO: prevent quick loop
       }
@@ -409,7 +415,10 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
       if (ret >= WAIT_OBJECT_0 && ret < WAIT_OBJECT_RANGE)
       {
         if (ret == WAIT_OBJECT_0)
-          return true;
+        {
+          stop_requested = true;
+          wait_timeout = 0; // wait no more, process any events pending and exit
+        }
 
         std::size_t idx = 0;
         for (DWORD first_idx = ret - WAIT_OBJECT_0 - 1/*first event is "full stop" signaling event*/;
