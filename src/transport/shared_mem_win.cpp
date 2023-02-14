@@ -241,13 +241,13 @@ v00_buffer_t::v00_buffer_t(OPEN_MODE op, const v00_names_t& nm, const DWORD buf_
 
         if (m_hshmm == NULL)
         {
-            std::cerr << __FUNCTION__ << " OpenFileMappingA(" << nm.m_shmm_name << ") GetLastError ERROR_ALREADY_EXISTS";
+            std::cerr << __FUNCTION__ << " OpenFileMappingA(" << nm.m_shmm_name << ") GetLastError ERROR_ALREADY_EXISTS" << std::endl;
         }
     }
 
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
-        std::cerr << __FUNCTION__ << " CreateFileMappingA GetLastError ERROR_ALREADY_EXISTS";
+        std::cerr << __FUNCTION__ << " CreateFileMappingA GetLastError ERROR_ALREADY_EXISTS" << std::endl;
     }
 
     if(m_hshmm)
@@ -273,11 +273,11 @@ v00_buffer_t::~v00_buffer_t()
 {
     if (FALSE == UnmapViewOfFile(m_mapped_memory))
     {
-        std::cerr << __FUNCTION__ << " UnmapViewOfFile GetLastError " << GetLastError();
+        std::cerr << __FUNCTION__ << " UnmapViewOfFile GetLastError " << GetLastError() << std::endl;
     }
     if (FALSE == CloseHandle(m_hshmm))
     {
-        std::cerr << __FUNCTION__ << " CloseHandle(m_hshmm) GetLastError " << GetLastError();
+        std::cerr << __FUNCTION__ << " CloseHandle(m_hshmm) GetLastError " << GetLastError() << std::endl;
     }
     m_data -> ~mapped_memory_layout_t();
 }
@@ -514,7 +514,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
   {
     if (FALSE == SetEvent(m_stop_event))
     {
-      std::cerr << __FUNCTION__ << " SetEvent(m_stop_event) GetLastError " << GetLastError();
+      std::cerr << __FUNCTION__ << " SetEvent(m_stop_event) GetLastError " << GetLastError() << std::endl;
     }
     x->join();
   };

@@ -106,6 +106,10 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_next_available)
 
 TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
 {
+  // validate neutrino::impl::memory::win_shared_mem::v00_pool_t and neutrino::impl::memory::win_shared_mem::v00_async_listener_t and neutrino::impl::shared_memory::buffer_t
+  // are capable to transfer data linearly, with no missed/corrupt data
+
+
   std::list<std::vector<uint8_t>> consumed_list;
 
   neutrino::impl::memory::win_shared_mem::v00_async_listener_t consumer(host_pool);
@@ -113,12 +117,22 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
   const uint32_t expected_buffers_received = expected_data.size() / buf_size;
   std::atomic_uint32_t actual_buffers_received{0};
 
+  std::string actual_sequences;
+  actual_sequences.reserve(size_t(expected_buffers_received) * 20);
+
+  std::string expected_sequences;
+  expected_sequences.reserve(actual_sequences.capacity());
+
+  for(uint32_t x = 1; x <= expected_buffers_received; x++)
+    expected_sequences.append(",").append(std::to_string(x));
+
   auto at_cancel = consumer.start(
-    [&consumed_list, &actual_buffers_received](uint64_t sequence, const uint8_t* p, const uint8_t* e)
+    [&actual_sequences, &consumed_list, &actual_buffers_received](uint64_t sequence, const uint8_t* p, const uint8_t* e)
     {
       consumed_list.emplace_back();
       consumed_list.back().assign(p, e);
       actual_buffers_received++;
+      actual_sequences.append(",").append(std::to_string(sequence));
     }
   );
 
@@ -132,25 +146,31 @@ TEST_F(neutrino_transport_shared_mem_win_Fixture, v00_pool_t_linear_transfer)
       // TODO: modify expected_data to check linear transfer
       neutrino::impl::shared_memory::buffer_t::span_t guest_span = guest_pool->m_buffer.load()->get_span(buf_size);
       memmove(guest_span.m_span, &(expected_data[transmitted]), buf_size);
-      guest_pool->m_buffer.load()->dirty(dirty_count++);
+      guest_pool->m_buffer.load()->dirty(++dirty_count);
       transmitted += buf_size;
     }
-    if(timepoint_of_timeout < std::chrono::steady_clock::now())
-      break;
     guest_pool->m_buffer = guest_pool->next_available(guest_pool->m_buffer.load());
+
+    std::cout << (guest_pool->m_buffer.load()->is_clean() ? "c\n" : "d\n");
     // this sleep allows consumer thread to get some processing time
     std::this_thread::sleep_for(std::chrono::milliseconds{1});
+
+    ASSERT_TRUE(timepoint_of_timeout > std::chrono::steady_clock::now());
   }
 
-  while(timepoint_of_timeout > std::chrono::steady_clock::now() && actual_buffers_received.load() < expected_buffers_received)
+  while(actual_buffers_received.load() < expected_buffers_received)
   {
     // this sleep allows consumer thread to get some processing time
-    std::this_thread::sleep_for(std::chrono::milliseconds{ 1 });
+    ASSERT_TRUE(timepoint_of_timeout > std::chrono::steady_clock::now());
+    std::this_thread::sleep_for(std::chrono::seconds{ 1 });
   }
 
   at_cancel();
 
-  ASSERT_EQ(actual_buffers_received.load(), expected_buffers_received);
+  ASSERT_TRUE(timepoint_of_timeout > std::chrono::steady_clock::now());
+
+  EXPECT_EQ(actual_buffers_received.load(), expected_buffers_received);
+  EXPECT_EQ(actual_sequences, expected_sequences);
 
   std::size_t consumed = 0;
   std::size_t block = 0;

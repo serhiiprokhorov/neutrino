@@ -1,7 +1,3 @@
-include(CTest)
-include(GoogleTest)
-find_package(GTest CONFIG REQUIRED)   
-
 add_executable(ut_v00_lib_gtest)
 
 if(TARGET_WIN32)
@@ -41,6 +37,11 @@ target_link_libraries(ut_v00_lib_gtest
 		#GTest::gmock 
 		#GTest::gmock_main
 )
+
+include(CTest)
+include(GoogleTest)
+#find_package(GTest CONFIG REQUIRED)   
+
 gtest_add_tests(TARGET ut_v00_lib_gtest)
 #gtest_discover_tests(ut_v00_lib_gtest
 #	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/gtest
