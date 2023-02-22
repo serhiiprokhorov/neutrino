@@ -366,6 +366,41 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
     bool stop_requested = false;
     DWORD wait_timeout = static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count());
 
+    uint64_t sorting_buffer_mask = 0; // occupied buffers
+    if(m_pool->m_buffers.size() > (sizeof(sorting_buffer_mask) * 8))
+      throw std::runtime_error(std::string(__FUNCTION__).append(" too many buffers"));
+
+    // this array holds "ready to consume" buffers in the order of their's sequences
+    // due to async nature of events, "buffer is ready" events occures in random order and with X > Y, sequence X buffer may be signaled later than sequence Y buffer
+    // to restore natural order of buffers, sorting_buffer holds "ready to consume" buffers at positions which are related to the very last consumed sequence:
+    // when last consumed sequence is S and there are pending "buffer is ready" events, each referring sequences X, Y, Z 
+    // then sorting_buffer[X-S] will hold X-buffer data
+    // then sorting_buffer[Y-S] will hold Y-buffer data
+    // then sorting_buffer[Z-S] will hold Z-buffer data
+    // Since sequences are monitonic, then sorting_buffer is only appended.
+    // sorting_buffer_mask marks cells which are occupied.
+    // Every time there are "ready to consume" buffers, the logic below calcs the offset of a cell idx=X-S, where X is a buffer's sequence and S is a last consumed sequence.
+    // Then the data is copied into a corresponding cell and the sorting_buffer_mask is updated.
+    // 0-indexed cell always contains a data which can be consumed because its sequence is exact next sequence.
+    // At the end of a main loop, if sorting_buffer_mask LSB is marked then 0-indexed data is processed, the whole array is rotated and sorting_buffer_mask is shifted.
+    // 
+    // For performance reasons, it only could be 64 items in 
+    std::vector<std::vector<uint8_t>> sorting_buffer;
+
+    // get the max size of each indiv buffer
+    // they should be equal-sized but just in case
+    std::size_t max_size = 0;
+    for (const auto& bb : m_pool->m_buffers)
+      if (max_size < bb->m_data_size)
+        max_size = bb->m_data_size;
+
+    sorting_buffer.reserve(m_pool->m_buffers.size());
+    for (std::size_t xx = 0; xx < m_pool->m_buffers.size(); xx++)
+    {
+      sorting_buffer.emplace_back();
+      sorting_buffer.back().reserve(max_size);
+    }
+
     std::string problem; problem.reserve(1000);
     while (true)
     {
@@ -434,72 +469,47 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           {
             // this buffer is expired because next expected sequence is greater than buffer's sequence
             cc_consumer_buf_outdated_clear++;
-            b->clear();
           }
           else
           {
-            cc_consumer_buf_ready++;
             idx = s.sequence - next_sequence;
-            cc_ready_data[idx]++;
-            auto& wahb = write_ahead_buffer[(read_data_offset + idx) % write_ahead_buffer_size];
-            if(wahb.second.sequence < s.sequence)
-            {
-              write_ahead_queue_len++;
-              cc_consumer_buf_event_new++;
-            }
-            else
-            if(wahb.second.sequence == s.sequence)
-            {
-              cc_consumer_buf_event_repeated++;
-            }
-            else
-            {
-              cc_consumer_buf_event_outdated++;
-            }
-            wahb = { first_idx , s };
-          }
-        }
+            if(sizeof(cc_ready_data) / sizeof(cc_ready_data[0]) > idx)
+              cc_ready_data[idx]++;
 
-        if(write_ahead_queue_len > buffers_size * 2)
-        {
-          while (true)
-          {
-            auto& s = write_ahead_buffer[read_data_offset];
-            if (s.second.sequence)
-            {
-              cc_consumer_buf_missed += next_sequence == s.second.sequence ? 0 : 1;
-              next_sequence = s.second.sequence;
-              break;
+            if (idx >= sorting_buffer.size()) {
+              // this buffer is too far away and can not be consumed
+              // TODO: handle dropped
+              cc_consumer_buf_outdated_clear++;
             }
-            else if(write_ahead_queue_len <= buffers_size * 2)
-              break;
-            write_ahead_queue_len--;
-            read_data_offset = (++read_data_offset) % write_ahead_buffer_size;
-          }
-        }
+            else {
+              cc_consumer_buf_ready++;
 
-        while(true)
-        {
-          auto& s = write_ahead_buffer[read_data_offset];
-          if(s.second.sequence != next_sequence)
-          {
-            break;
+              sorting_buffer[idx].resize(s.free_bytes);
+              memmove(&(sorting_buffer[idx][0]), s.m_span, s.free_bytes);
+              sorting_buffer_mask |= (uint64_t(1) << idx);
+            }
           }
-          write_ahead_queue_len--;
-
-          cc_consumer_buf_consumed++;
-          consume_one(s.second.sequence, s.second.m_span, s.second.m_span + s.second.free_bytes);
-          s.second.sequence = 0;
+          b->clear();
           cc_consumer_buf_clear++;
-          m_pool->m_buffers[s.first]->clear();
+        }
 
-          next_sequence++;
-          read_data_offset = (read_data_offset + 1) % write_ahead_buffer_size;
+        while (sorting_buffer_mask & 1) {
+          cc_consumer_buf_consumed++;
+
+          sorting_buffer_mask >>= 1;
+
+          const auto* p = &(sorting_buffer.front().front());
+          consume_one(next_sequence++, p, p + sorting_buffer.front().size());
+
+          // rotate the array
+          for (std::size_t ii = 1; ii < sorting_buffer.size(); ii++) {
+            sorting_buffer[ii - 1].swap(sorting_buffer[ii]);
+          }
         }
 
         cc_consumer_continue++;
-        continue;
-      }
+        continue; 
+      } // if (ret >= WAIT_OBJECT_0 && ret < WAIT_OBJECT_RANGE)
 
       /*WAIT_ABANDONED_0 .. (WAIT_ABANDONED_0 + nCount– 1)*/
       // exit if any of events have been abandoned

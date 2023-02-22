@@ -24,7 +24,7 @@ namespace neutrino
               // m_pool->next_available() is reenterable and const, returns next available buffer
               // 
               // different threads enters with data in [p, e) 
-              // each thread calls get_span() and gets isolated blocks of memory, those blocks are not intereaving due to get_span(length) atomically reserves blocks
+              // each thread calls get_span(e-p) and gets isolated blocks of memory, those blocks are not intereaving due to get_span(length) atomically reserves blocks
               //
               // if get_span() was succesfull, the span it returns is exclusive to current thread and it may copy data in there
               //    until buffer is full, concurrent threads write data in m_buffer simultaneously
@@ -32,10 +32,10 @@ namespace neutrino
               // get_span() fails if the buffer is full (can not fit range bytes e - p)
               // in this case two things are needed to move forward: 
               // 1) move next available buffer into m_pool->m_buffer (by using m_pool->next_available())
-              //    multiple threads may call m_pool->next_available() but only one can put it into m_pool->m_buffer ecause of atomic exchange.
+              //    multiple threads may call m_pool->next_available() but only one can put it into m_pool->m_buffer because of atomic exchange.
               //    if atomic exchange failed, current buffer restarts the operation, not moving forward
               // 2) mark the current buffer as dirty (a way to inform the host app of the buffer is ready)
-              //    this is exclusive, is done by only that thread which succeeded on atomic exchange of m_pool->m_buffer.
+              //    this is exclusive, is done by that thread which succeeded on atomic exchange of m_pool->m_buffer.
               //    No other thread can succeed with atomic exchange
               //    
                 auto bytes_to_copy = e - p;
@@ -103,7 +103,10 @@ namespace neutrino
 
                         // it is now safe to make active_buf dirty and sync with host app
                         // because no other thread access active_buf with prof: we just updated m_current_buf with compare_exchange_weak
-                        active_buf->dirty(m_dirty_count++);
+                        // 
+                        // m_dirty_count represents a sequence in which buffers become "dirty"
+                        // consumer will use this number to restore the order in which buffers became dirty
+                        active_buf->dirty(++m_dirty_count);
                       }
 
                       // with no bytes to copy we have nothing to do on retry: either this thread or concurrect thread has declared active_buf->dirty(m_dirty_count++);

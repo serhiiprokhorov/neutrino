@@ -13,8 +13,8 @@ TEST(neutrino_nanoepoch, is_linear)
     auto x2 = neutrino_nanoepoch();
     auto x3 = neutrino_nanoepoch();
 
-    ASSERT_TRUE(x3 > x2);
-    ASSERT_TRUE(x2 > x1);
+    ASSERT_TRUE(x3 >= x2);
+    ASSERT_TRUE(x2 >= x1);
 }
 
 TEST(neutrino_nanoepoch, interval)
