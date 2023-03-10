@@ -348,6 +348,19 @@ v00_async_listener_t::~v00_async_listener_t()
   CloseHandle(m_stop_event);
 }
 
+template <typename X>
+inline void print_mask(const char label, X next_sequence, X x) {
+    char buf[200];
+    char* p = buf + snprintf(buf, sizeof(buf) / sizeof(buf[0]), "m%c %lld ", label, next_sequence);
+    while (x) {
+      *(p++) = x & 1 ? '1' : '0';
+      x >>= 1;
+    }
+    *(p++) = '\n';
+    *p = '\x0';
+    std::cerr << buf;
+}
+
 std::function<void()> v00_async_listener_t::start(std::function <void(const uint64_t sequence, const uint8_t* p, const uint8_t* e)> consume_one)
 {
   std::fill(cc_ready_data.begin(), cc_ready_data.end(), 0);
@@ -364,7 +377,9 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
     const auto write_ahead_buffer_size = write_ahead_buffer.size();
 
     bool stop_requested = false;
-    DWORD wait_timeout = static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count());
+    //DWORD wait_timeout = static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(30)).count());
+    DWORD wait_timeout = static_cast<DWORD>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::seconds(1)).count());
+    //DWORD wait_timeout = static_cast<DWORD>(std::chrono::milliseconds(1).count());
 
     uint64_t sorting_buffer_mask = 0; // occupied buffers
     if(m_pool->m_buffers.size() > (sizeof(sorting_buffer_mask) * 8))
@@ -386,19 +401,23 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
     // 
     // For performance reasons, it only could be 64 items in 
     std::vector<std::vector<uint8_t>> sorting_buffer;
+     uint8_t dummy = 0;
 
-    // get the max size of each indiv buffer
-    // they should be equal-sized but just in case
-    std::size_t max_size = 0;
-    for (const auto& bb : m_pool->m_buffers)
-      if (max_size < bb->m_data_size)
-        max_size = bb->m_data_size;
-
-    sorting_buffer.reserve(m_pool->m_buffers.size());
-    for (std::size_t xx = 0; xx < m_pool->m_buffers.size(); xx++)
     {
-      sorting_buffer.emplace_back();
-      sorting_buffer.back().reserve(max_size);
+      // get the max size of each indiv buffer
+      // they should be equal-sized but just in case
+      std::size_t max_size = 0;
+      for (const auto& bb : m_pool->m_buffers)
+        if (max_size < bb->m_data_size)
+          max_size = bb->m_data_size;
+
+      const auto sorting_buffer_sz = m_pool->m_buffers.size() * 2;
+      sorting_buffer.reserve(sorting_buffer_sz);
+      for (std::size_t xx = 0; xx < sorting_buffer_sz; xx++)
+      {
+        sorting_buffer.emplace_back();
+        sorting_buffer.back().reserve(max_size);
+      }
     }
 
     std::string problem; problem.reserve(1000);
@@ -424,7 +443,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
       }
 
       DWORD ret = ::WaitForMultipleObjectsEx(
-        m_sync_handles.size(),
+        DWORD(m_sync_handles.size()),
         &(m_sync_handles[0]),
         false /*bWaitAll*/,
         wait_timeout,
@@ -442,6 +461,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           break;
 
         cc_consumer_wait_timeout++;
+        consume_one(next_sequence, nullptr, nullptr);
         continue; // TODO: prevent quick loop
       }
 
@@ -473,6 +493,11 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           else
           {
             idx = s.sequence - next_sequence;
+
+            char buf[200];
+            sprintf(buf, "idx %lld\n", idx);
+            std::cerr << buf;
+
             if(sizeof(cc_ready_data) / sizeof(cc_ready_data[0]) > idx)
               cc_ready_data[idx]++;
 
@@ -485,7 +510,8 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
               cc_consumer_buf_ready++;
 
               sorting_buffer[idx].resize(s.free_bytes);
-              memmove(&(sorting_buffer[idx][0]), s.m_span, s.free_bytes);
+              if(s.free_bytes)
+                memmove(&(sorting_buffer[idx][0]), s.m_span, s.free_bytes);
               sorting_buffer_mask |= (uint64_t(1) << idx);
             }
           }
@@ -493,19 +519,25 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           cc_consumer_buf_clear++;
         }
 
+        print_mask('0', next_sequence, sorting_buffer_mask);
+
         while (sorting_buffer_mask & 1) {
           cc_consumer_buf_consumed++;
 
           sorting_buffer_mask >>= 1;
 
-          const auto* p = &(sorting_buffer.front().front());
-          consume_one(next_sequence++, p, p + sorting_buffer.front().size());
+          const auto sz = sorting_buffer.front().size();
+          const auto* p = sz ? &(sorting_buffer.front().front()) : &dummy;
+          consume_one(next_sequence, p, p + sz);
 
+          ++next_sequence;
           // rotate the array
           for (std::size_t ii = 1; ii < sorting_buffer.size(); ii++) {
             sorting_buffer[ii - 1].swap(sorting_buffer[ii]);
           }
         }
+
+        print_mask('1', next_sequence, sorting_buffer_mask);
 
         cc_consumer_continue++;
         continue; 

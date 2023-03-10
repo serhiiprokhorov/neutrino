@@ -88,6 +88,9 @@ namespace neutrino
 
                     const bool is_clean() const noexcept final { return m_sync.is_clean(); }
                     void dirty(uint64_t dirty_buffer_counter) noexcept final {
+                      char buf[200];
+                      snprintf(buf, sizeof(buf) / sizeof(buf[0]), "dirty %lld\n", dirty_buffer_counter);
+                      std::cerr << buf;
                       m_data->m_header.set_inuse(
                         m_occupied.load()
                         //, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count()
@@ -97,7 +100,10 @@ namespace neutrino
                       m_sync.dirty();
                     }
                     void clear() noexcept final { 
-                      m_sync.clear(); 
+                      char buf[200];
+                      snprintf(buf, sizeof(buf) / sizeof(buf[0]), "clear %lld\n", m_data->m_header.m_sequence);
+                      std::cerr << buf;
+                      m_sync.clear();
                       m_data->m_header.set_free();
                     }
 
@@ -112,6 +118,9 @@ namespace neutrino
                     {
                       m_occupied = m_data->m_header.m_inuse_bytes; // TODO: needs mem fence!!!
                       const uint64_t sequence = m_data->m_header.m_sequence;
+                      char buf[200];
+                      snprintf(buf, sizeof(buf) / sizeof(buf[0]), "get data %lld bytes %lld\n", sequence, m_occupied.load());
+                      std::cerr << buf;
                       return { &m_data->m_first_byte, m_occupied.load(), sequence };
                     }
 
