@@ -42,6 +42,39 @@ namespace memory
 namespace win_shared_mem
 {
 
+void print_stats(std::ostream& out) {
+  out << "neutrino::impl::memory::win_shared_mem stats" << std::endl
+    << "\tcc_buf_reported_clean=" << cc_buf_reported_clean << std::endl
+    << "\tcc_buf_reported_dirty=" << cc_buf_reported_dirty << std::endl
+    << "\tcc_buf_reported_inuse=" << cc_buf_reported_inuse << std::endl
+    << "\tcc_buf_reported_setfree=" << cc_buf_reported_setfree << std::endl
+    << "\tcc_buf_is_clean_true=" << cc_buf_is_clean_true << std::endl
+    << "\tcc_buf_is_clean_false=" << cc_buf_is_clean_false << std::endl
+    << "\tcc_consumer_wait_ret=" << cc_consumer_wait_ret << std::endl
+    << "\tcc_consumer_wait_timeout=" << cc_consumer_wait_timeout << std::endl
+    << "\tcc_consumer_buf_outdated_clear=" << cc_consumer_buf_outdated_clear << std::endl
+    << "\tcc_consumer_buf_ready=" << cc_consumer_buf_ready << std::endl
+    << "\tcc_consumer_buf_consumed=" << cc_consumer_buf_consumed << std::endl
+    << "\tcc_consumer_buf_clear=" << cc_consumer_buf_clear << std::endl
+    << "\tcc_consumer_continue=" << cc_consumer_continue << std::endl
+    << "\tcc_consumer_buf_missed=" << cc_consumer_buf_missed << std::endl
+    << "\tcc_consumer_buf_event_new=" << cc_consumer_buf_event_new << std::endl
+    << "\tcc_consumer_buf_event_repeated=" << cc_consumer_buf_event_repeated << std::endl
+    << "\tcc_consumer_buf_event_outdated=" << cc_consumer_buf_event_outdated << std::endl
+    ;
+
+  std::size_t max_idx = cc_ready_data.size() - 1;
+  for (; max_idx >= 0; max_idx--) {
+    if (cc_ready_data[max_idx])
+      break;
+  }
+
+  out << "\tcc_ready_data" << std::endl;
+  for (std::size_t idx = 0; idx < max_idx; idx++) {
+    out << "\t" << idx << ":" << cc_ready_data[idx] << std::endl;
+  }
+}
+
 v00_names_t::v00_names_t(std::string shmm_name, std::string event_name, std::string sem_name)
   : m_shmm_name(shmm_name), m_event_name(event_name), m_sem_name(sem_name)
 {
@@ -290,6 +323,20 @@ v00_buffer_t::span_t v00_buffer_t::get_span(const uint64_t length) noexcept
   if (next_occupied > m_data_size || !m_occupied.compare_exchange_weak(occupied, next_occupied))
     return { nullptr, 0 };
 
+
+  return { &(m_data->m_first_byte) + occupied, m_data_size - next_occupied, 0 };
+}
+
+v00_buffer_t::span_t v00_buffer_t::get_span_singlethread(const uint64_t length) noexcept
+{
+  auto occupied = m_occupied.load();
+  auto next_occupied = occupied + length;
+
+  if (next_occupied > m_data_size)
+    return { nullptr, 0 };
+
+  m_occupied = next_occupied;
+
   return { &(m_data->m_first_byte) + occupied, m_data_size - next_occupied, 0 };
 }
 
@@ -494,9 +541,9 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           {
             idx = s.sequence - next_sequence;
 
-            char buf[200];
-            sprintf(buf, "idx %lld\n", idx);
-            std::cerr << buf;
+            //char buf[200];
+            //sprintf(buf, "idx %lld\n", idx);
+            //std::cerr << buf;
 
             if(sizeof(cc_ready_data) / sizeof(cc_ready_data[0]) > idx)
               cc_ready_data[idx]++;
@@ -519,7 +566,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           cc_consumer_buf_clear++;
         }
 
-        print_mask('0', next_sequence, sorting_buffer_mask);
+        //print_mask('0', next_sequence, sorting_buffer_mask);
 
         while (sorting_buffer_mask & 1) {
           cc_consumer_buf_consumed++;
@@ -537,7 +584,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
           }
         }
 
-        print_mask('1', next_sequence, sorting_buffer_mask);
+        //print_mask('1', next_sequence, sorting_buffer_mask);
 
         cc_consumer_continue++;
         continue; 

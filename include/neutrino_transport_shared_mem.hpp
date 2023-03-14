@@ -55,6 +55,7 @@ namespace neutrino
                 };
 
                 virtual span_t get_span(const uint64_t length) noexcept = 0;
+                virtual span_t get_span_singlethread(const uint64_t length) noexcept = 0;
 
                 virtual span_t get_data() noexcept = 0;
             };

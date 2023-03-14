@@ -21,7 +21,7 @@ namespace neutrino
                 {
                   if(b)
                   {
-                    if (auto span = buffer->get_span(b))
+                    if (auto span = buffer->get_span_singlethread(b))
                     {
                       std::copy(p, e, span.m_span);
                       /* TODO: watermark has no use now
