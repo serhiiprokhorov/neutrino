@@ -7,9 +7,6 @@
 #include <neutrino_transport_shared_mem_endpoint_proxy_mt.hpp>
 #include <neutrino_transport_shared_mem_win.hpp>
 
-const std::size_t num_buffers = 5;
-const DWORD buf_size = 1000;
-              
 const uint8_t generated_data[] = { 
 //0  1  2  3  4  5  6  7  8  9  10  11  12  13  14  15 
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 
@@ -241,45 +238,42 @@ void mark_array_thread_id<10>(uint8_t thread_id, const CircLoop* data, uint8_t* 
 class neutrino_transport_shared_mem_endpoint_proxy_Fixture : public ::testing::Test {
   public:
 
-  std::unique_ptr<neutrino::impl::memory::win_shared_mem::v00_names_t> nm;
-
-  std::shared_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > host_pool;
-
-  std::shared_ptr < neutrino::impl::memory::win_shared_mem::v00_pool_t > guest_pool;
-
-
-  void generate_pools()
-  {
-    nm.reset(new neutrino::impl::memory::win_shared_mem::v00_names_t(123, "domain", "suffix"));
-
-    host_pool.reset(new neutrino::impl::memory::win_shared_mem::v00_pool_t(
-      num_buffers
-      , neutrino::impl::memory::win_shared_mem::OPEN_MODE::CREATE
-      , *nm
-      , buf_size));
-
-    guest_pool.reset(new neutrino::impl::memory::win_shared_mem::v00_pool_t(
-      num_buffers
-      , neutrino::impl::memory::win_shared_mem::OPEN_MODE::OPEN
-      , *nm
-      , buf_size));
-
-    ASSERT_TRUE(guest_pool->m_buffer.load()->is_clean());
-    ASSERT_TRUE(host_pool->m_buffer.load()->is_clean());
-  }
-
-  void SetUp() override {
-    generate_pools();
-  }
-
   void TearDown() override {
     neutrino::impl::memory::win_shared_mem::print_stats(std::cout);
   }
 
-  template <std::size_t num_bytes_per_single_consume_op>
-  void validate_data_transfer(neutrino::impl::transport::endpoint_proxy_t& x, const size_t num_threads) {
+  template <
+    typename guest_pool_t,
+    typename endpoint_t,
+    std::size_t num_bytes_per_single_consume_op
+  >
+  void validate_data_transfer(const std::size_t num_buffers, const DWORD buf_size, const size_t num_threads, const std::size_t bytes_to_consume) {
 
-    const std::size_t bytes_to_consume = num_buffers * std::size_t(buf_size) * 1000;
+    std::cerr << "num_buffers=" << num_buffers << " buf_size=" << buf_size << " num_threads=" << num_threads << " bytes_to_consume=" << bytes_to_consume << std::endl;
+
+    std::unique_ptr<neutrino::impl::memory::win_shared_mem::v00_names_t> nm(
+      new neutrino::impl::memory::win_shared_mem::v00_names_t(123, "domain", "suffix")
+    );
+
+    std::shared_ptr< neutrino::impl::memory::win_shared_mem::v00_pool_t > host_pool(
+      new neutrino::impl::memory::win_shared_mem::v00_pool_t(
+        num_buffers
+        , neutrino::impl::memory::win_shared_mem::OPEN_MODE::CREATE
+        , *nm
+        , buf_size));
+
+    std::shared_ptr< neutrino::impl::shared_memory::pool_t > guest_pool(
+      //new neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t(
+      new guest_pool_t(
+        num_buffers
+        , neutrino::impl::memory::win_shared_mem::OPEN_MODE::OPEN
+        , *nm
+        , buf_size));
+
+    endpoint_t::shared_memory_endpoint_proxy_params_t params;
+    params.m_message_buf_watermark = 0; // TODO: not in use
+    endpoint_t x(params, guest_pool);
+
     const std::size_t adjusted_bytes_per_thread = (bytes_to_consume / num_threads) * num_threads;
     const std::size_t adjusted_bytes_to_consume = adjusted_bytes_per_thread * num_threads;
 
@@ -309,11 +303,11 @@ class neutrino_transport_shared_mem_endpoint_proxy_Fixture : public ::testing::T
 
     neutrino::impl::memory::win_shared_mem::v00_async_listener_t listener(host_pool);
 
-    {
-      char buf[200];
-      snprintf(buf, sizeof(buf) / sizeof(buf[0]), "expect blocks %lld bytes %lld\n", bytes_to_consume / buf_size + 1, bytes_to_consume);
-      std::cerr << buf;
-    }
+    //{
+    //  char buf[200];
+    //  snprintf(buf, sizeof(buf) / sizeof(buf[0]), "expect blocks %lld bytes %lld\n", bytes_to_consume / buf_size + 1, bytes_to_consume);
+    //  std::cerr << buf;
+    //}
 
     std::vector<std::size_t> consumed_thread_current(num_threads);
     uint64_t consumed_sequence = 0;
@@ -357,6 +351,8 @@ class neutrino_transport_shared_mem_endpoint_proxy_Fixture : public ::testing::T
           ASSERT_EQ(*p, generated_data[idx]) << "sequence=" << sequence << " idx=" << idx << "thread_id=" << thread_id;
           p++;
         }
+
+        //std::cerr << "consumed_bytes_total=" << consumed_bytes_total << "\n";
 
         //if(producer_done && consumed_bytes_total >= produced_bytes_total) {
         if(consumed_bytes_total >= adjusted_bytes_to_consume) {
@@ -405,8 +401,10 @@ class neutrino_transport_shared_mem_endpoint_proxy_Fixture : public ::testing::T
 
             if (!x.consume(data_to_consume, data_to_consume + num_bytes_per_single_consume_op)) {
               char buf[200];
-              snprintf(buf, sizeof(buf) / sizeof(buf[0]), "consume failure, thread_id=%llu, at=%lld", t, consumed);
-              throw std::runtime_error(buf);
+              snprintf(buf, sizeof(buf) / sizeof(buf[0]), "consume failure, thread_id=%llu, at=%lld\n", t, consumed);
+              std::cerr << buf;
+              ADD_FAILURE() << buf;
+              return;
             }
 
             consumed += num_bytes_per_single_consume_op;
@@ -489,165 +487,508 @@ class singlethreaded_producer : public neutrino_transport_shared_mem_endpoint_pr
 public:
 };
 
-TEST_F(singlethreaded_producer, one_byte_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, one_byte_norm_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  // this test ensures singlethread producer and any of endpoint proxies are capable to transfer data when paired with win_shared_mem::v00_async_listener_t
-  // transfers data with no corruptions, no missed bbytes, no overlaps
-
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t x(params, guest_pool);
-    
-  validate_data_transfer<1>(x, 1);
+    validate_data_transfer<
+      neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+      neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+      1
+    >(5, 1000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, two_byte_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, one_byte_narrow_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  // this test ensures singlethread producer and any of endpoint proxies are capable to transfer data when paired with win_shared_mem::v00_async_listener_t
-  // transfers data with no corruptions, no missed bbytes, no overlaps
-
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<2>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    1
+  >(1, 10000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, three_byte_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, one_byte_narrow_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  // this test ensures singlethread producer and any of endpoint proxies are capable to transfer data when paired with win_shared_mem::v00_async_listener_t
-  // transfers data with no corruptions, no missed bbytes, no overlaps
-
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<3>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    1
+  >(1, 100, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, ten_byte_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, one_byte_wide_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  // this test ensures singlethread producer and any of endpoint proxies are capable to transfer data when paired with win_shared_mem::v00_async_listener_t
-  // transfers data with no corruptions, no missed bbytes, no overlaps
-
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<10>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    1
+  >(50, 10000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, one_byte_consume_st_exclusive_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, one_byte_wide_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<1>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    1
+  >(50, 100, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, two_byte_consume_st_exclusive_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, two_byte_norm_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<2>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    2
+  >(5, 1000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, three_byte_consume_st_exclusive_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, two_byte_narrow_short_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<3>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    2
+  >(1, 100, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, ten_byte_consume_st_exclusive_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, two_byte_narrow_long_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);
-
-  validate_data_transfer<10>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    2
+  >(1, 10000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, one_byte_consume_st_optimistic_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, two_byte_wide_short_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
-      params
-      , guest_pool
-      , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
-    );
-
-  validate_data_transfer<1>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    2
+  >(50, 100, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, two_byte_consume_st_optimistic_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, two_byte_wide_long_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
-    params
-    , guest_pool
-    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
-  );
-
-  validate_data_transfer<2>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    2
+  >(50, 10000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, three_byte_consume_st_optimistic_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, three_byte_norm_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
-    params
-    , guest_pool
-    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
-  );
-
-  validate_data_transfer<3>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    3
+  >(5, 1000, 1, 150000);
 }
 
-TEST_F(singlethreaded_producer, ten_byte_consume_st_optimistic_mt_shared_memory_endpoint_proxy_t)
+TEST_F(singlethreaded_producer, three_byte_narrow_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
 {
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
-  params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
-    params
-    , guest_pool
-    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
-  );
-
-  validate_data_transfer<10>(x, 1);
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    3
+  >(1, 100, 1, 150000);
 }
+
+TEST_F(singlethreaded_producer, three_byte_narrow_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    3
+  >(1, 10000, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, three_byte_wide_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    3
+  >(50, 100, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, three_byte_wide_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    3
+  >(50, 10000, 1, 150000);
+}
+
+
+TEST_F(singlethreaded_producer, ten_byte_norm_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(5, 1000, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, ten_byte_narrow_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(1, 100, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, ten_byte_narrow_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(1, 10000, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, ten_byte_wide_short_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(50, 100, 1, 150000);
+}
+
+TEST_F(singlethreaded_producer, ten_byte_wide_long_pool_consume_st_singlethread_shared_memory_endpoint_proxy_t)
+{
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_singlethread_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(50, 10000, 1, 150000);
+}
+
 
 class mutilthreaded_producer : public neutrino_transport_shared_mem_endpoint_proxy_Fixture {
 public:
 };
 
-TEST_F(mutilthreaded_producer, exclusive_mt_shared_memory_endpoint_proxy_t)
+/*
+TEST_F(mutilthreaded_producer, one_byte_consume_st_exclusive_mt_one_thread_shared_memory_endpoint_proxy_t)
 {
+  validate_data_transfer<
+    neutrino::impl::memory::win_shared_mem::v00_pool_t,
+    neutrino::impl::transport::singlethread_shared_memory_endpoint_proxy_t,
+    10
+  >(5, 1000, 1, 5000);
+
+  auto pool = generate_pools(5, 1000);
+
   neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
   params.m_message_buf_watermark = 0; // TODO: not in use
-  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, guest_pool);
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
 
-  validate_data_transfer<1>(x, 0xf);
+  validate_data_transfer<1>(x, 1, pool);
 }
 
-
-TEST_F(mutilthreaded_producer, optimistic_mt_shared_memory_endpoint_proxy_t)
+TEST_F(mutilthreaded_producer, one_byte_consume_st_exclusive_mt_two_threads_shared_memory_endpoint_proxy_t)
 {
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<1>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, one_byte_consume_st_exclusive_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<1>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_exclusive_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<2>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_exclusive_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<2>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_exclusive_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<2>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_exclusive_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<3>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_exclusive_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<3>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_exclusive_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<3>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_exclusive_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<10>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_exclusive_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<10>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_exclusive_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::exclusive_mt_shared_memory_endpoint_proxy_t x(params, pool.guest);
+
+  validate_data_transfer<10>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, one_byte_consume_st_optimistic_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
   neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
   params.m_message_buf_watermark = 0; // TODO: not in use
   neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
-      params
-      , guest_pool
-      , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
-    );
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
 
-  validate_data_transfer<1>(x, 0xf);
+  validate_data_transfer<1>(x, 1, pool);
 }
+
+TEST_F(mutilthreaded_producer, one_byte_consume_st_optimistic_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<1>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, one_byte_consume_st_optimistic_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<1>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_optimistic_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<2>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_optimistic_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<2>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, two_byte_consume_st_optimistic_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<2>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_optimistic_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<3>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_optimistic_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<3>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, three_byte_consume_st_optimistic_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<3>(x, 15, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_optimistic_mt_one_thread_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<10>(x, 1, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_optimistic_mt_two_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<10>(x, 2, pool);
+}
+
+TEST_F(mutilthreaded_producer, ten_byte_consume_st_optimistic_mt_many_threads_shared_memory_endpoint_proxy_t)
+{
+  auto pool = generate_pools(5, 1000);
+
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::shared_memory_endpoint_proxy_params_t params;
+  params.m_message_buf_watermark = 0; // TODO: not in use
+  neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t x(
+    params
+    , pool.guest
+    , neutrino::impl::transport::optimistic_mt_shared_memory_endpoint_proxy_t::optimistic_mt_shared_memory_endpoint_proxy_params_t()
+  );
+
+  validate_data_transfer<10>(x, 15, pool);
+}
+*/

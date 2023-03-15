@@ -55,16 +55,16 @@ namespace neutrino
                 };
 
                 virtual span_t get_span(const uint64_t length) noexcept = 0;
-                virtual span_t get_span_singlethread(const uint64_t length) noexcept = 0;
 
                 virtual span_t get_data() noexcept = 0;
             };
 
             struct pool_t
             {
-              std::atomic<buffer_t*> m_buffer{nullptr};
+              virtual buffer_t* get_buffer() = 0;
+              virtual bool set_buffer(buffer_t*) = 0;
 
-                buffer_t* next_available(buffer_t* c) const noexcept
+              buffer_t* next_available(buffer_t* c) const noexcept
                 {
                     assert(c);
                     buffer_t* buf = c->m_next;

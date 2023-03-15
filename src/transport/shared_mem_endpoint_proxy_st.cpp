@@ -13,7 +13,7 @@ namespace neutrino
                 // 0 requires to flush current buffer
                 auto b = e - p;
 
-                shared_memory::buffer_t* buffer = m_pool->m_buffer.load(); // TODO: remove threaded stuff
+                shared_memory::buffer_t* buffer = m_pool->get_buffer(); // TODO: remove threaded stuff
                 bool mark_dirty = true;
 
                 std::size_t retries_on_overflow{ m_shared_memory_endpoint_proxy_params.m_retries_on_overflow };
@@ -21,7 +21,7 @@ namespace neutrino
                 {
                   if(b)
                   {
-                    if (auto span = buffer->get_span_singlethread(b))
+                    if (auto span = buffer->get_span(b))
                     {
                       std::copy(p, e, span.m_span);
                       /* TODO: watermark has no use now
@@ -49,7 +49,7 @@ namespace neutrino
                   }
                   else
                   {
-                    m_pool->m_buffer = (buffer = next_buffer);
+                    m_pool->set_buffer((buffer = next_buffer));
                     mark_dirty = true;
                     retries_on_overflow = m_shared_memory_endpoint_proxy_params.m_retries_on_overflow;
                   }

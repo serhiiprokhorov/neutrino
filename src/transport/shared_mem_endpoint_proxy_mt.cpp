@@ -51,7 +51,7 @@ namespace neutrino
                     // shared part, concurrent threads executes it
                     //
                     // ---------------------------------------------------
-                    shared_memory::buffer_t* active_buf = m_pool->m_buffer.load();
+                    auto active_buf = m_pool->get_buffer();
                     if(bytes_to_copy)
                     {
                       auto span = active_buf->get_span(bytes_to_copy);
@@ -84,7 +84,7 @@ namespace neutrino
                         continue;
                       }
 
-                      if(m_pool->m_buffer.compare_exchange_weak(active_buf, next_buf))
+                      if(m_pool->set_buffer(next_buf))
                       {
                         // failure to perform compare_exchange_weak means the concurrent thread has it done already: active_buf has been decalred dirty and m_pool->m_buffer now contains next available buffer
                         // compare_exchange_weak failure may occur with the code in two different states:

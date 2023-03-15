@@ -240,85 +240,85 @@ const bool v00_sync_t::is_clean() const noexcept
   return false; // signaled, the buffer had been marked as dirty/ready to consume
 }
 
-v00_buffer_t::v00_buffer_t(OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size, v00_sync_t& sync, buffer_t* b, std::chrono::steady_clock::time_point started)
+v00_base_buffer_t::v00_base_buffer_t(OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size, v00_sync_t& sync, buffer_t* b, std::chrono::steady_clock::time_point started)
   : m_sync(sync)
   , m_data_size(buf_size)
   , m_data(nullptr)
   , buffer_t(b)
   , m_started(started)
 {
-    const DWORD shm_size = buf_size + sizeof(mapped_memory_layout_t);
-    if(op == OPEN_MODE::CREATE)
-    {
-        m_hshmm = CreateFileMappingA(
-            INVALID_HANDLE_VALUE,
-            NULL,
-            PAGE_READWRITE | SEC_COMMIT,
-            0,
-            shm_size,
-            nm.m_shmm_name.c_str()
-        );
+  const DWORD shm_size = buf_size + sizeof(mapped_memory_layout_t);
+  if (op == OPEN_MODE::CREATE)
+  {
+    m_hshmm = CreateFileMappingA(
+      INVALID_HANDLE_VALUE,
+      NULL,
+      PAGE_READWRITE | SEC_COMMIT,
+      0,
+      shm_size,
+      nm.m_shmm_name.c_str()
+    );
 
-        if (m_hshmm == NULL)
-        {
-            throw std::runtime_error(std::string(__FUNCTION__).append(" CreateFileMappingA(").append(nm.m_shmm_name).append(") GetLastError ").append(std::to_string(GetLastError())));
-        }
-    }
-    else
+    if (m_hshmm == NULL)
     {
-        m_hshmm = OpenFileMappingA(
-            FILE_MAP_ALL_ACCESS
-            , FALSE /* can not inherit the handle */
-            , nm.m_shmm_name.c_str()
-        );
-
-        if (m_hshmm == NULL)
-        {
-            std::cerr << __FUNCTION__ << " OpenFileMappingA(" << nm.m_shmm_name << ") GetLastError ERROR_ALREADY_EXISTS" << std::endl;
-        }
+      throw std::runtime_error(std::string(__FUNCTION__).append(" CreateFileMappingA(").append(nm.m_shmm_name).append(") GetLastError ").append(std::to_string(GetLastError())));
     }
+  }
+  else
+  {
+    m_hshmm = OpenFileMappingA(
+      FILE_MAP_ALL_ACCESS
+      , FALSE /* can not inherit the handle */
+      , nm.m_shmm_name.c_str()
+    );
 
-    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    if (m_hshmm == NULL)
     {
-        std::cerr << __FUNCTION__ << " CreateFileMappingA GetLastError ERROR_ALREADY_EXISTS" << std::endl;
+      std::cerr << __FUNCTION__ << " OpenFileMappingA(" << nm.m_shmm_name << ") GetLastError ERROR_ALREADY_EXISTS" << std::endl;
     }
+  }
 
-    if(m_hshmm)
-    {
-      m_mapped_memory = MapViewOfFile(
-        m_hshmm
-        , FILE_MAP_ALL_ACCESS
-        , 0
-        , 0
-        , shm_size
-      );
-    }
-    if (m_mapped_memory == NULL)
-    {
-        throw std::runtime_error(std::string(__FUNCTION__).append(" MapViewOfFile(").append(nm.m_shmm_name).append(") GetLastError ").append(std::to_string(GetLastError())));
-    }
+  if (GetLastError() == ERROR_ALREADY_EXISTS)
+  {
+    std::cerr << __FUNCTION__ << " CreateFileMappingA GetLastError ERROR_ALREADY_EXISTS" << std::endl;
+  }
 
-    // inplace create
-    m_data = new (m_mapped_memory) mapped_memory_layout_t(op, buf_size);
+  if (m_hshmm)
+  {
+    m_mapped_memory = MapViewOfFile(
+      m_hshmm
+      , FILE_MAP_ALL_ACCESS
+      , 0
+      , 0
+      , shm_size
+    );
+  }
+  if (m_mapped_memory == NULL)
+  {
+    throw std::runtime_error(std::string(__FUNCTION__).append(" MapViewOfFile(").append(nm.m_shmm_name).append(") GetLastError ").append(std::to_string(GetLastError())));
+  }
+
+  // inplace create
+  m_data = new (m_mapped_memory) mapped_memory_layout_t(op, buf_size);
 }
 
-v00_buffer_t::~v00_buffer_t()
+v00_base_buffer_t::~v00_base_buffer_t()
 {
-    if (FALSE == UnmapViewOfFile(m_mapped_memory))
-    {
-        std::cerr << __FUNCTION__ << " UnmapViewOfFile GetLastError " << GetLastError() << std::endl;
-    }
-    if (FALSE == CloseHandle(m_hshmm))
-    {
-        std::cerr << __FUNCTION__ << " CloseHandle(m_hshmm) GetLastError " << GetLastError() << std::endl;
-    }
-    m_data -> ~mapped_memory_layout_t();
+  if (FALSE == UnmapViewOfFile(m_mapped_memory))
+  {
+    std::cerr << __FUNCTION__ << " UnmapViewOfFile GetLastError " << GetLastError() << std::endl;
+  }
+  if (FALSE == CloseHandle(m_hshmm))
+  {
+    std::cerr << __FUNCTION__ << " CloseHandle(m_hshmm) GetLastError " << GetLastError() << std::endl;
+  }
+  m_data -> ~mapped_memory_layout_t();
 }
 
 v00_buffer_t::span_t v00_buffer_t::get_span(const uint64_t length) noexcept
 {
   auto occupied = m_occupied.load();
-  auto next_occupied = occupied + length;
+  const auto next_occupied = occupied + length;
 
   if (next_occupied > m_data_size || !m_occupied.compare_exchange_weak(occupied, next_occupied))
     return { nullptr, 0 };
@@ -327,10 +327,10 @@ v00_buffer_t::span_t v00_buffer_t::get_span(const uint64_t length) noexcept
   return { &(m_data->m_first_byte) + occupied, m_data_size - next_occupied, 0 };
 }
 
-v00_buffer_t::span_t v00_buffer_t::get_span_singlethread(const uint64_t length) noexcept
+v00_buffer_t::span_t v00_singlethread_buffer_t::get_span(const uint64_t length) noexcept
 {
-  auto occupied = m_occupied.load();
-  auto next_occupied = occupied + length;
+  const auto occupied = m_occupied;
+  const auto next_occupied = m_occupied + length;
 
   if (next_occupied > m_data_size)
     return { nullptr, 0 };
@@ -340,16 +340,24 @@ v00_buffer_t::span_t v00_buffer_t::get_span_singlethread(const uint64_t length) 
   return { &(m_data->m_first_byte) + occupied, m_data_size - next_occupied, 0 };
 }
 
-v00_pool_t::v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size)
+v00_base_pool_t::v00_base_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size)
   : m_started(std::chrono::steady_clock::now())
 {
-  m_buffer = nullptr;
-
-  if(num_buffers > MAXIMUM_WAIT_OBJECTS)
+  if (num_buffers > MAXIMUM_WAIT_OBJECTS)
     throw std::runtime_error(std::string().append(" num_buffers ").append(std::to_string(num_buffers)).append(" exceeds MAXIMUM_WAIT_OBJECTS ").append(std::to_string(MAXIMUM_WAIT_OBJECTS)));
 
   m_syncs.reserve(num_buffers);
   m_buffers.reserve(num_buffers);
+}
+
+v00_base_pool_t::~v00_base_pool_t()
+{
+}
+
+v00_pool_t::v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size)
+  : v00_base_pool_t(num_buffers, op, nm, buf_size)
+{
+  m_buffer = nullptr;
 
   for(std::size_t i = 0; i < num_buffers; i++)
   {
@@ -361,8 +369,19 @@ v00_pool_t::v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t&
   m_buffers.front()->m_next = m_buffer;
 }
 
-v00_pool_t::~v00_pool_t()
+v00_singlethread_pool_t::v00_singlethread_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size)
+  : v00_base_pool_t(num_buffers, op, nm, buf_size)
 {
+  m_buffer = nullptr;
+
+  for (std::size_t i = 0; i < num_buffers; i++)
+  {
+    const auto indexed_nm = nm.with_suffix(std::to_string(i));
+    m_syncs.emplace_back(new v00_sync_t(op, indexed_nm));
+    m_buffers.emplace_back(new v00_singlethread_buffer_t(op, indexed_nm, buf_size, *(m_syncs.back()), m_buffer, m_started));
+    m_buffer = (m_buffers.back()).get();
+  }
+  m_buffers.front()->m_next = m_buffer;
 }
 
 v00_async_listener_t::v00_async_listener_t(std::shared_ptr<v00_pool_t> pool)
