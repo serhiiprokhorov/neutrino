@@ -1,0 +1,64 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 22,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "gcc-13.2.0",
+            "hidden": true,
+            "toolchainFile": "~/cmake_toolchains/gcc-13.2.0.cmake",
+            "cacheVariables": {
+            }
+        },
+        {
+            "name": "debug",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "neutrino_ut",
+            "hidden": true,
+            "cacheVariables": {
+               "NEUTRINO_UT" : true
+            }
+        },
+        {
+            "name": "neutrino_multythread",
+            "hidden": true,
+            "cacheVariables": {
+                "NEUTRINO_MT": true    
+            }
+        },
+        {
+            "name": "neutrino_producer",
+            "hidden": true,
+            "cacheVariables": {
+                "NEUTRINO_PRODUCER_V00_LIB": true
+            }
+        },
+        {
+            "name": "neutrino_consumer",
+            "hidden": true,
+            "cacheVariables": {
+                "NEUTRINO_CONSUMER_V00_LIB": true
+            }
+        },
+        {
+            "name": "debug_full_mt_gcc-13.2.0_linux-x86-64",
+            "inherits": [ "debug", "neutrino_consumer", "neutrino_producer", "neutrino_multythread", "neutrino_ut", "gcc-13.2.0"],
+            "binaryDir": "${sourceDir}/out/build/${presetName}"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "neutrino_full_mt_debug_gcc-13.2.0_linux-x86-64",
+            "hidden": false,
+            "configurePreset": "debug_full_mt_gcc-13.2.0_linux-x86-64"
+        }
+    ]
+}
