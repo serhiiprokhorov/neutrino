@@ -5,7 +5,7 @@
 #include <iostream>
 #include <array>
 #include <algorithm>
-#include <neutrino_transport_shared_mem_win.hpp>
+#include <neutrino_transport_shared_mem_win32.hpp>
 
 const DWORD expected_layout_version = 0;
 
@@ -609,7 +609,7 @@ std::function<void()> v00_async_listener_t::start(std::function <void(const uint
         continue; 
       } // if (ret >= WAIT_OBJECT_0 && ret < WAIT_OBJECT_RANGE)
 
-      /*WAIT_ABANDONED_0 .. (WAIT_ABANDONED_0 + nCount– 1)*/
+      /*WAIT_ABANDONED_0 .. (WAIT_ABANDONED_0 + nCountï¿½ 1)*/
       // exit if any of events have been abandoned
       break;
     }

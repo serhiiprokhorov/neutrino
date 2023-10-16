@@ -7,36 +7,36 @@ project(neutrino
 	LANGUAGES CXX C
 )
 
+# config strategy:
+# - default compiler or user-defined toolchain file (referenced by CMakePresets.json)
+# - build specific settings in CMakePresets.json
+# - platform-specific extension to lookup sources
+
 # GoogleTest requires at least C++14
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# TODO: case independent/stripped/normalized
+set(NEUTRINO_PLAT_IMPL_EXT CMAKE_SYSTEM_NAME)
+
+# variables coing from CMakePresets.json
 message(STATUS "Neutrino producer lib ${NEUTRINO_PRODUCER_V00_LIB}")
 message(STATUS "Neutrino consumer lib ${NEUTRINO_CONSUMER_V00_LIB}")
 message(STATUS "Neutrino multithread ${NEUTRINO_MT}")
 message(STATUS "Neutrino UT ${NEUTRINO_UT}")
 message(STATUS "Neutrino target CMAKE_SYSTEM_NAME ${CMAKE_SYSTEM_NAME}")
 message(STATUS "CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "CMAKE_LIBRARY_ARCHITECTURE ${CMAKE_LIBRARY_ARCHITECTURE}")
+message(STATUS "platform implementation extention ${NEUTRINO_PLAT_IMPL_EXT}")
 
+# hardcoded, until external module repository is adopted
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
+
+# include gt specific stuff only with unit testing enabled
 if(NEUTRINO_UT)
-	include(FetchContent)
-	FetchContent_Declare(
-	  googletest
-	  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
-	)
-	# For Windows: Prevent overriding the parent project's compiler/linker settings
-	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-	FetchContent_MakeAvailable(googletest)	
-
-	enable_testing()
-
-	#include(CTest)
-	#include(GoogleTest)
-    #find_package(GTest CONFIG REQUIRED)   
-	add_compile_definitions(UT)
+	include(neutrino_ut)
 endif()
 
 if(NEUTRINO_PRODUCER_V00_LIB)
