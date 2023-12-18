@@ -18,12 +18,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # TODO: case independent/stripped/normalized
-set(NEUTRINO_PLAT_IMPL_EXT CMAKE_SYSTEM_NAME)
+set(NEUTRINO_PLAT_IMPL_EXT "unknown")
+string(TOLOWER ${CMAKE_SYSTEM_NAME} NEUTRINO_PLAT_IMPL_EXT)
 
 # variables coing from CMakePresets.json
 message(STATUS "Neutrino producer lib ${NEUTRINO_PRODUCER_V00_LIB}")
+if(NEUTRINO_PRODUCER_V00_LIB)
+	message(STATUS "Neutrino producer mt ${NEUTRINO_PRODUCER_MT}")
+endif()
 message(STATUS "Neutrino consumer lib ${NEUTRINO_CONSUMER_V00_LIB}")
-message(STATUS "Neutrino multithread ${NEUTRINO_MT}")
 message(STATUS "Neutrino UT ${NEUTRINO_UT}")
 message(STATUS "Neutrino target CMAKE_SYSTEM_NAME ${CMAKE_SYSTEM_NAME}")
 message(STATUS "CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR}")
@@ -36,7 +39,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 # include gt specific stuff only with unit testing enabled
 if(NEUTRINO_UT)
-	include(neutrino_ut)
+	include(neutrino_ut_tools)
 endif()
 
 if(NEUTRINO_PRODUCER_V00_LIB)
@@ -49,5 +52,5 @@ endif()
 
 if(NEUTRINO_UT)
 	#TODO is it needed?
-	include(ut_v00_lib_gtest)
+	include(neutrino_ut_v00_lib_gtest)
 endif()

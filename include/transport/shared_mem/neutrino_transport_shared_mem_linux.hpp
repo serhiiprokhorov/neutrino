@@ -2,13 +2,40 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
-#include <Windows.h>
 
 #include <memory>
 #include <string>
 #include <stdexcept>
 
-#include <neutrino_transport_shared_mem.hpp>
+#include "neutrino_transport_shared_mem.hpp"
+
+namespace neutrino
+{
+  namespace transport
+  {
+    namespace shared_memory
+    {
+      namespace platform
+      {
+        struct initializer_memfd_t
+        {
+          initializer_memfd_t(std::size_t buffer_bytes);
+          initializer_memfd_t(unsigned int fd);
+          ~initializer_memfd_t();
+            
+          unsigned int m_fd = -1; /// fd of memfd
+          void* m_rptr = nullptr; /// mmap shared mem ptr
+          std::size_t m_bytes; /// size in bytes of a single buffer
+        };
+
+        struct formatter_t
+        {
+          static std::vector<buffer_t> create_ring(initializer_memfd_t& memory);
+        };
+      }
+    }
+  }
+}
 
 namespace neutrino
 {
@@ -16,8 +43,13 @@ namespace neutrino
     {
         namespace memory
         {
-            namespace win_shared_mem
+            namespace linux_shared_mem
             {
+              struct buffer_initializer_t {
+                std::unique_ptr<neutrino::>
+              }
+
+
                 void print_stats(std::ostream& out);
 
                 struct v00_names_t

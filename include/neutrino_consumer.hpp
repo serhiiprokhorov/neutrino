@@ -1,25 +1,33 @@
 #pragma once
 
-#include "neutrino_frames_local.hpp"
+#include "neutrino_types.h"
 
 namespace neutrino
 {
-    namespace impl
+    // represents basic consumer operation; in use by a consumer implementation and by a consumer proxy created at producer's side
+    struct consumer_t
     {
-        struct consumer_t
-        {
-            virtual ~consumer_t() = default;
-            virtual void consume_checkpoint(
-                const local::payload::nanoepoch_t::type_t&
-                , const local::payload::stream_id_t::type_t&
-                , const local::payload::event_id_t::type_t&
-            ) {};
-            virtual void consume_context(
-                const local::payload::nanoepoch_t::type_t&
-                , const local::payload::stream_id_t::type_t&
-                , const local::payload::event_id_t::type_t&
-                , const local::payload::event_type_t::event_types&
-            ) {};
-        };
-    }
-}
+        virtual ~consumer_t() = default;
+
+        virtual void consume_checkpoint(
+            const neutrino_nanoepoch_t&
+            , const neutrino_stream_id_t&
+            , const neutrino_event_id_t&
+        ) {};
+        virtual void consume_context_enter(
+            const neutrino_nanoepoch_t&
+            , const neutrino_stream_id_t&
+            , const neutrino_event_id_t&
+        ) {};
+        virtual void consume_context_leave(
+            const neutrino_nanoepoch_t&
+            , const neutrino_stream_id_t&
+            , const neutrino_event_id_t&
+        ) {};
+        virtual void consume_context_exception(
+            const neutrino_nanoepoch_t&
+            , const neutrino_stream_id_t&
+            , const neutrino_event_id_t&
+        ) {};
+    };
+} // neutrino

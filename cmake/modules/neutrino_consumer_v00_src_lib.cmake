@@ -8,4 +8,10 @@ target_sources(consumer_v00_lib
 	${transport_v00_sources}
 )
 
-target_include_directories(consumer_v00_lib PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(
+	consumer_v00_lib 
+	PRIVATE 
+	${PROJECT_SOURCE_DIR}/include 
+	${PROJECT_SOURCE_DIR}/include/transport 
+	${PROJECT_SOURCE_DIR}/include/shared_mem
+	)

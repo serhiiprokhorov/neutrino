@@ -28,16 +28,18 @@
             }
         },
         {
-            "name": "neutrino_multythread",
+            "name": "neutrino_producer_mt",
             "hidden": true,
             "cacheVariables": {
-                "NEUTRINO_MT": true    
+                "NEUTRINO_PRODUCER_MT": true,
+                "NEUTRINO_PRODUCER_V00_LIB": true
             }
         },
         {
-            "name": "neutrino_producer",
+            "name": "neutrino_producer_st",
             "hidden": true,
             "cacheVariables": {
+                "NEUTRINO_PRODUCER_MT": false,  
                 "NEUTRINO_PRODUCER_V00_LIB": true
             }
         },
@@ -50,7 +52,7 @@
         },
         {
             "name": "debug_full_mt_gcc-13.2.0_linux-x86-64",
-            "inherits": [ "debug", "neutrino_consumer", "neutrino_producer", "neutrino_multythread", "neutrino_ut", "gcc-13.2.0"],
+            "inherits": [ "debug", "neutrino_consumer", "neutrino_producer_mt", "neutrino_ut", "gcc-13.2.0"],
             "binaryDir": "${sourceDir}/out/build/${presetName}"
         }
     ],

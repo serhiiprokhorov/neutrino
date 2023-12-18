@@ -8,7 +8,7 @@
 #include <string>
 #include <stdexcept>
 
-#include <neutrino_transport_shared_mem.hpp>
+#include "neutrino_transport_shared_mem.hpp"
 
 namespace neutrino
 {
