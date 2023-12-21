@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <optional>
 
 #include "neutrino_transport_shared_mem.hpp"
 
@@ -17,21 +18,75 @@ namespace neutrino
     {
       namespace platform
       {
+
+        /// @brief allocates/maps a range of bytes as a shared memory 
         struct initializer_memfd_t
         {
           initializer_memfd_t(std::size_t buffer_bytes);
           initializer_memfd_t(unsigned int fd);
           ~initializer_memfd_t();
+
+          uint8_t* data() { return m_rptr; }
+          std::size_t size() const { return m_bytes; }
             
           unsigned int m_fd = -1; /// fd of memfd
-          void* m_rptr = nullptr; /// mmap shared mem ptr
+          uint8_t* m_rptr = nullptr; /// mmap shared mem ptr
           std::size_t m_bytes; /// size in bytes of a single buffer
         };
 
-        struct formatter_t
-        {
-          static std::vector<buffer_t> create_ring(initializer_memfd_t& memory);
+        /// @brief this struct binds together types/functions/constants related to v00 shared header
+        struct v00_shared_header_control {
+
+          struct event_checkpoint {
+
+          };
+
+          struct event_context {
+
+          };
+
+          struct alignas(uint64_t) header_t
+          {
+            sem_t m_ready; 
+            uint64_t m_inuse_bytes = 0;
+            uint64_t m_sequence = 0;
+
+            header_t() {
+              if( sem_init(&m_ready, 1 /* this sem is shared between processes */, 1) != 0 ) {
+                error(errno, "format_at.sem_init");
+              }
+            }
+          };
+
+          const std::size_t biggest_event_bytes = std::max({sizeof(event_checkpoint), sizeof(event_context)});
+          const std::size_t min_bytes_needed = sizeof(header_t) + biggest_event_bytes;
+
+          struct header_control_t {
+            header_t * m_header = nullptr;
+            uint8_t* m_first_available = nullptr;
+            uint8_t* m_hi_water_mark = nullptr;
+          };
+
+          static void destroy(header_t*); 
+          static bool is_clean(const header_t*); 
+          static void clear(header_t*); 
+          static void dirty(header_t*, const uint64_t sequence);
+
+          /// format helper; 
+          /// @return header ptr or nullptr if not enough space or unable to initialize semaphore
+          header_control_t format_at(uint8_t* start, std::size_t bytes_available) {
+
+            if(min_bytes_needed > bytes_available)
+              return header_control_t{};
+
+            return header_control_t {
+              .m_header = new (start) header_t,
+              .m_first_available = start + sizeof(header_t),
+              .m_hi_water_mark = start + bytes_available - biggest_event_bytes
+            };
+          }
         };
+
       }
     }
   }

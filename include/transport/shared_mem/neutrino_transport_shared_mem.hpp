@@ -18,35 +18,13 @@ namespace neutrino
         namespace shared_memory
         {
             namespace platform {
-                enum class VERSIONS : uint64_t {
-                    v00 = 0,
-                    unknown = 1000
-                };
-
-                // linux-specific header of a shared buffer
-                struct alignas(alignof(uint64_t)) v00_header_t
-                {
-                    uint64_t m_header_size;
-                    uint64_t m_maximumSize; // total bytes , including header + events
-
-                    alignas(alignof(uint64_t)) uint64_t m_inuse_bytes;
-                    alignas(alignof(uint64_t)) uint64_t m_sequence;
-
-                    // v00_header_t(OPEN_MODE op, uint64_t maximumSize);
-                    // std::size_t size() const { return sizeof(*this); }
-
-                    // // not thread safe
-                    // void set_inuse(const LONG64 inuse, const LONG64 diff_started) noexcept;
-                    // // not thread safe
-                    // void set_free() noexcept;
-                };
-
                 /// @brief shared between producer and consumer; 
                 /// has states:
                 /// - "clean", in this state the buffer has some empty space at the end and may accept more data
                 /// - "dirty", in this state the buffer can not accept more data,
                 //             still may have empty space at the end but not enough to fit the data proposed by a producer
                 // Multiple buffers form a chain, each buffer includes a pointer to the next buffer
+                template <typename SHARED_HEADER>
                 struct buffer_t final
                 {
                     /// @brief points to the region in memory available to store events
@@ -58,28 +36,14 @@ namespace neutrino
                         const std::size_t sz; /// total bytes the span occupies
                     };
 
-                    /// @brief stores shared memory pointers, sync tools etc in platform specific way
-                    struct handle_t {
-                        std::function<void()> m_destroy; 
-                        std::function<bool()> m_is_clean; 
-                        std::function<void()> m_clear; 
-                        std::function<void(const uint64_t dirty_buffer_counter)> m_dirty;
-
-                        span_t m_span; /// cont bytes this object occupies (including headers/protecting bytes etc)
-
-                        operator bool() const { return m_span.start != nullptr; }
-                    };
-
-                    handle_t const m_handle;
+                    SHARED_HEADER::header_t* m_handle = nullptr; // associated platform specific shared header
                     buffer_t* m_next = nullptr; // ptr to the next available buffer
 
-                    buffer_t(handle_t handle) :
+                    buffer_t(SHARED_HEADER::header_t* handle) :
                         m_handle(handle)
                     {}
 
-                    ~buffer_t() {
-                        m_handle.m_destroy();
-                    };
+                    ~buffer_t() = default;
 
                     static const bool is_clean(const handle_t* handle) noexcept;
                     static void dirty(const uint64_t dirty_buffer_counter, const handle_t* handle) noexcept;
@@ -89,42 +53,66 @@ namespace neutrino
                 };
 
 
-                class buffers_ring_t {
+                template <typename SHARED_HEADER>
+                struct buffers_ring_t {
                     std::vector<buffer_t> m_buffers;
-                    public:
 
-                    template <typename SYNCH_FORMATTER>
-                    buffers_ring_t(std::size_t cc_buffers, void* shared_memory_ptr, std::size_t shared_memory_bytes) {
-                        
-                        const std::size_t single_buffer_bytes = shared_memory_bytes / cc_buffers;
+                    buffer_t* get_first() { return &m_buffers.front(); }
 
-                        void * start = shared_memory_ptr;
-                        buffer_t* prev_buffer = nullptr;
-                        while(auto handle = SYNCH_FORMATTER::create_handle_at(start, single_buffer_bytes))
+                    /// @brief creates buffers ring on top of a given shared memory block using SHARED_HEADER metadata
+                    /// @tparam SHARED_MEMORY  
+                    template <typename SHARED_MEMORY>
+                    buffers_ring_t(SHARED_MEMORY& memory, std::size_t cc_buffers) {
+                        const std::size_t bytes_per_buffer = memory.size() / cc_buffers;
+
+                        // make sure it is enough space to format single buffer as a given SHARED_HEADER
+                        if(bytes_per_buffer < SHARED_HEADER::min_bytes_needed)
+                            return ;
+
+                        m_buffers.reserve(cc_buffers);
+
+                        uint8_t * start = memory.data();
+                        uint8_t * end = start + memory.size();
+
+                        while(start < end)
                         {
+                            auto header_ctr = SHARED_HEADER::format_at(start, bytes_per_buffer);
+                            if(!header_ctr.m_header)
+                                break;
                             m_buffers.emplace_back(handle);
-                            auto& last_buffer = m_buffers.back(); 
+                            start += bytes_per_buffer;
+                        };
 
-                            if(prev_buffer) {
-                                prev_buffer->m_next = &m_buffers.back();
-                            }
+                        make_ring(tmp_buffers);
+                    }
+                private:
+                    void make_ring(std::vector<buffer_t>&& buffers) 
+                    {
+                        m_buffers = buffers;
 
-                            start += single_buffer_bytes;
-                        } while (true);
+                        const auto sz = m_buffers.size();
 
-                        if(m_buffers.size())
-                            m_buffers.back().m_next = &(m_buffers.front());
+                        if(sz == 0)
+                            return;
 
-                        if(m_buffers.size() != cc_buffers) {
-                            error("buffers_ring_t shared memory is too small to fit the requested number of buffers");
-                            m_buffers.clear();
+                        m_buffers.back().m_next = &(m_buffers.front());
+
+                        if(sz == 1)
+                        {
+                            return;
+                        }
+                        
+                        buffer_t* prev_buffer = &(m_buffers.front());
+                        for( auto it = m_buffers.begin() + 1; it != m_buffers.end(); ++it ) {
+                            prev_buffer->m_next = &(*it);
+                            prev_buffer = prev_buffer->m_next;
                         }
                     }
-                    buffer_t* get_first() { return &m_buffers.front(); }
                 };
             }
 
             namespace producer {
+                template <typename SHARED_HEADER>
                 struct span_at_buffer_t {
                     // buffer stores multiple events, m_current remains stable until the buffer reached high water mark
                     platform::buffer_t* m_buffer = nullptr;
@@ -154,8 +142,7 @@ namespace neutrino
                     }
 
                     /// @brief places an event into the very first available buffer, handles mark-dirty and lookup-next-free
-                    /// @tparam SERIALIZED serializes an event into continuous area in memory
-                    /// reason SERIALIZED templated is almost constexpr nature of its operations 
+                    template <typename SHARED_HEADER>
                     struct synchronized_t {
 
                         span_at_buffer_t m_available;
@@ -186,13 +173,14 @@ namespace neutrino
                                 // the buffer has reached its high water mark, time to mark-dirty
                                 // mark as dirty notifies consumer it is ready to consume
                                 // the counter helps detect missed buffers
-                                m_last_used->dirty(++m_dirty_buffer_counter);
+                                SHARED_HEADER::dirty(m_available.m_buffer->m_header, ++m_dirty_buffer_counter);
                                 lookup_available();
                             }
                             return true;
                         }
                     };
                     // exclusive access is the same as synchronized + mutex
+                    template <typename SHARED_HEADER>
                     struct exclusive_t final {
                         std::mutex m_mutex;
                         synchronized_t m_synchronized;
@@ -207,6 +195,7 @@ namespace neutrino
                             return m_synchronized(serialized);
                         }
                     };
+                    template <typename SHARED_HEADER>
                     struct lock_free_t {
 
                         const uint64_t m_retries_serialize = 1;
