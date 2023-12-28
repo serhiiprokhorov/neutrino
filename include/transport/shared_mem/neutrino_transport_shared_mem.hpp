@@ -13,60 +13,70 @@
 
 namespace neutrino
 {
+    /// @brief a producer generates events and a consumer reads those events;
+    /// Assumption "producer never waits": any error to send out event causes producer to drop the event.
+    /// Assumption "hungry consumer": consumer's capacity to process events should exceed producer's,
+    /// with rare cases of intermittent consumer's slow downs.
     namespace transport
     {
+        /// @brief assumes consumer and producer shares a memory which holds the events, producer signals consumer when its ready.
+        ///
+        /// The shared memory is split into one or more buffers, each buffer consists of:
+        /// - header (signals, capacity, runtime counters etc) and events area
+        /// - events area
+        /// .
+        /// Each buffer at any moment is in exclusive use by producer or consumer:
+        /// - producer fills it up with events until full, the producer signals "this buffer is full" to consumer
+        /// - the buffer stays full until consumer grabbed all data events and marked it as "clean"  
+        /// .
+        /// With multiple buffers available, the producer can continue placing events while the consumer still working on a current buffer.
+        /// This helps to reduce the number of dropped events in case of intermittent consumer's slow down.
         namespace shared_memory
         {
             namespace platform {
-                /// @brief shared between producer and consumer; 
-                /// has states:
-                /// - "clean", in this state the buffer has some empty space at the end and may accept more data
-                /// - "dirty", in this state the buffer can not accept more data,
-                //             still may have empty space at the end but not enough to fit the data proposed by a producer
-                // Multiple buffers form a chain, each buffer includes a pointer to the next buffer
-                template <typename SHARED_HEADER>
-                struct buffer_t final
-                {
-                    /// @brief points to the region in memory available to store events
-                    /// NOTE: hi_water_mark+sizeof(largest event) is always inside the region (safe for writing) 
-                    struct span_t {
-                        uint8_t* start; /// first byte which belongs to the span
-                        uint8_t* first_available; /// first available byte (assuming there is a reserved space between start and first_available)
-                        const uint8_t* hi_water_mark;
-                        const std::size_t sz; /// total bytes the span occupies
-                    };
-
-                    SHARED_HEADER::header_t* m_handle = nullptr; // associated platform specific shared header
-                    buffer_t* m_next = nullptr; // ptr to the next available buffer
-
-                    buffer_t(SHARED_HEADER::header_t* handle) :
-                        m_handle(handle)
-                    {}
-
-                    ~buffer_t() = default;
-
-                    static const bool is_clean(const handle_t* handle) noexcept;
-                    static void dirty(const uint64_t dirty_buffer_counter, const handle_t* handle) noexcept;
-                    static void clear(const handle_t* handle) noexcept;
-
-                    static const span_t available(const handle_t* handle) noexcept;
-                };
-
-
+                /// @brief a ring of shared buffers;
+                /// @tparam SHARED_HEADER provides low level functions/data types to operate shared memory
                 template <typename SHARED_HEADER>
                 struct buffers_ring_t {
-                    std::vector<buffer_t> m_buffers;
+                    /// @brief ring helper struct, also exposes func requirements to SHARED_HEADER template
+                    struct buffer_t final
+                    {
+                        SHARED_HEADER::header_control_t m_handle; // platform specific shared memory info associated with this buffer instance
+                        buffer_t* m_next = nullptr; // ptr to the next available buffer
 
-                    buffer_t* get_first() { return &m_buffers.front(); }
+                        operator bool() const {
+                            return m_handle.m_header != nullptr;
+                        }
+
+                        buffer_t(SHARED_HEADER::header_control_t handle) :
+                            m_handle(handle)
+                        {}
+
+                        ~buffer_t() = default;
+
+                        /// @brief look up for the next available buffer
+                        /// @return pointer to the buffer; 
+                        /// @warning caller is responsible to validate if the buffer is actually free
+                        buffer_t* next_available() {
+                            // lookup next avail buffer in the ring and update m_available to use it with next message
+                            // when no buffers are available ->  and its time to ignore message
+                            auto* next = m_next;
+                            while(!next->is_clean() && next != this) {
+                                next = next -> m_next;
+                            }
+                            // NOTE: in case no buffers are available (consumer is chocked) 
+                            // next will point to the same buffer the search started with (i.e. this)
+                            return next;
+                        }
+
+                    };
 
                     /// @brief creates buffers ring on top of a given shared memory block using SHARED_HEADER metadata
-                    /// @tparam SHARED_MEMORY  
-                    template <typename SHARED_MEMORY>
-                    buffers_ring_t(SHARED_MEMORY& memory, std::size_t cc_buffers) {
-                        const std::size_t bytes_per_buffer = memory.size() / cc_buffers;
-
+                    buffers_ring_t(uint8_t* shared_memory, std::size_t size_bytes, bool create_new, std::size_t cc_buffers) {
+                        // cut the given range of shared memory into the requested number of buffers
                         // make sure it is enough space to format single buffer as a given SHARED_HEADER
-                        if(bytes_per_buffer < SHARED_HEADER::min_bytes_needed)
+                        const std::size_t bytes_per_buffer = memory.size() / cc_buffers;
+                        if(bytes_per_buffer < SHARED_HEADER::smallest_buffer_size_bytes)
                             return ;
 
                         m_buffers.reserve(cc_buffers);
@@ -76,20 +86,26 @@ namespace neutrino
 
                         while(start < end)
                         {
-                            auto header_ctr = SHARED_HEADER::format_at(start, bytes_per_buffer);
-                            if(!header_ctr.m_header)
+                            if(!m_buffers.emplace_back(SHARED_HEADER::format_at(start, create_new, bytes_per_buffer))) {
+                                // unable to format a header in a given area start...start+bytes_per_buffer
+                                // remove unformatted buffer and break the loop
+                                m_buffers.pop_back();
                                 break;
-                            m_buffers.emplace_back(handle);
+                            }
                             start += bytes_per_buffer;
                         };
 
-                        make_ring(tmp_buffers);
+                        // NOTE: this func uses raw pointers, no further reallocations are allowed 
+                        make_ring();
                     }
-                private:
-                    void make_ring(std::vector<buffer_t>&& buffers) 
-                    {
-                        m_buffers = buffers;
 
+                    buffer_t* get_first() { return &m_buffers.front(); }
+
+                private:
+                    std::vector<buffer_t> m_buffers;
+
+                    void make_ring() 
+                    {
                         const auto sz = m_buffers.size();
 
                         if(sz == 0)
@@ -112,45 +128,23 @@ namespace neutrino
             }
 
             namespace producer {
-                template <typename SHARED_HEADER>
-                struct span_at_buffer_t {
-                    // buffer stores multiple events, m_current remains stable until the buffer reached high water mark
-                    platform::buffer_t* m_buffer = nullptr;
-                    // currently available range of bytes
-                    platform::buffer_t::span_t m_span;
-
-                    void set(platform::buffer_t* buffer) {
-                        m_span = platform::buffer_t::available((m_buffer = buffer)->m_handle);
-                    }
-                };
 
                 namespace port {
-
-                    bool lookup_available() {
-                        // lookup next avail buffer in the ring and update m_available to use it with next message
-                        // when no buffers are available ->  and its time to ignore message
-                        auto* next = m_available.m_buffer->m_next;
-                        while(!platform::buffer_t::is_clean(next->m_handle)) {
-                            if(next == m_available.m_buffer) {
-                                // consumer is chocked, no available buffers in the ring, return error
-                                // note m_available remains the same and this loop will be repeated 
-                                return false; 
-                            }
-                            next = next -> m_next;
-                        }
-                        m_available.set(next);
-                    }
 
                     /// @brief places an event into the very first available buffer, handles mark-dirty and lookup-next-free
                     template <typename SHARED_HEADER>
                     struct synchronized_t {
 
-                        span_at_buffer_t m_available;
-                        uint64_t m_dirty_buffer_counter = 0; // increments with each mark-dirty
+                        platform::buffers_ring_t::buffer_t* m_last_used;
+
+                        // synchronized_t operates in a threadsafe environment
+                        // with no other threads around
+                        uint8_t* m_free;
+                        uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
                         synchronized_t(platform::buffers_ring_t& current) {
-                            m_available.m_buffer = current.get_first();
-                            m_available.m_span = m_available.m_buffer->available();
+                            m_last_used = current.get_first();
+                            m_free = m_last_used->m_handle.m_first_available;
                         }
 
                         // scans available buffers for the first continuous span of memory to place the bytes requested
@@ -160,21 +154,30 @@ namespace neutrino
                         //  - from clean to dirty by producer
                         //  - from dirty to clean by consumer
                         template <typename SERIALIZED>
-                        bool put(SERIALIZED serialized) {
-                            if(m_available.m_span.first_available > m_available.m_span.hi_water_mark && !lookup_available())
-                                return false;
-                                
-                            // buffer's hi water mark is always lower than the biggest message
-                            // i.e. for each buffer and message combo this stands (m_hi_watermark + serialized.bytes) < buffer.end()
+                        bool put(SERIALIZED serialized) noexcept {
+                            if(m_free > m_last_used->m_handle.m_hi_water_mark) {
+                                auto* next = m_last_used -> next_available();
+                                // next_available() returning the same buffer means no free buffers at the moment
+                                if(m_last_used == next)
+                                    return false; // drop the event
+                                // reset the next buffer as last used and remember where it begins
+                                m_last_used = next;
+                                m_free = m_last_used->m_handle.m_first_available;
+                            }
+
+                            // buffer's hi water mark is set so to make sure the biggest message fits between hi water mark and the end of a buffer
+                            // i.e. (m_hi_watermark + serialized.bytes) < buffer.end()
                             // no need to check for buffer overflow before adding the message
-                            // also no need to worry about preallocating the buffer since its synchronized
-                            serialized.into(m_available.m_span.first_available);
-                            if((m_available.m_span.first_available += serialized.bytes) >= m_available.m_span.hi_water_mark) {
+                            // and no other threads are using this buffer since this code is synchronized
+                            serialized.into(m_free);
+                            if((m_free += serialized.bytes) >= m_last_used->m_handle.m_hi_water_mark) {
                                 // the buffer has reached its high water mark, time to mark-dirty
                                 // mark as dirty notifies consumer it is ready to consume
                                 // the counter helps detect missed buffers
-                                SHARED_HEADER::dirty(m_available.m_buffer->m_header, ++m_dirty_buffer_counter);
-                                lookup_available();
+                                m_last_used->m_header.dirty(
+                                    (m_free - m_last_used.m_header.m_first_available),
+                                    ++m_dirty_buffer_counter
+                                );
                             }
                             return true;
                         }
@@ -189,10 +192,10 @@ namespace neutrino
                         : m_synchronized(current) {}
 
                         template <typename SERIALIZED>
-                        bool place(SERIALIZED serialized) {
+                        bool put(SERIALIZED serialized) noexcept {
                             std::lock_guard l(m_mutex);
                             // when lock is acquired, call synch version
-                            return m_synchronized(serialized);
+                            return m_synchronized.put(serialized);
                         }
                     };
                     template <typename SHARED_HEADER>
@@ -200,124 +203,143 @@ namespace neutrino
 
                         const uint64_t m_retries_serialize = 1;
 
-                        // lock free needs an atomic guaranteed by the platform, some platforms can guarantee atomic struct
-                        // m_first_available_byte is used together with m_first_available to implement atomic address
-                        std::atomic_uint_fast64_t m_first_available_byte;
-                        span_at_buffer_t m_available;
+                        std::atomic<platform::buffers_ring_t::buffer_t*> m_last_used;
+                        std::atomic<uint8_t*> m_free;
+                        std::atomic_uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
-                        std::atomic_int64_t m_dirty_buffer_counter = 0; // increments with each mark-dirty
                         std::atomic_int_fast64_t m_in_use = 0; // increments each time a thread is about to write to the buffer, decrements when write is done
+                        std::atomic_int_fast64_t m_in_use_edge = 0; // non zero while "edge" thread is in the function
 
-                        lock_free_t(platform::buffers_ring_t& current, const uint64_t retries_serialize)
+                        lock_free_t(platform::buffers_ring_t& ring, const uint64_t retries_serialize)
                         : m_retries_serialize(retries_serialize) {
-                            m_available.set(current.get_first());
+                            m_last_used = ring.get_first();
+                            m_free = m_last_used.load()->m_header.m_first_available;
                             m_first_available_byte.store(0);
                         }
 
                         template <typename SERIALIZED>
-                        bool place(SERIALIZED serialized) {
-                            // multiple threads access this function simultaneously
-                            // each thread attempts to reserve a place in a buffer to fit the event
-                            // compare_exchange guarantee no two threads update m_begin, i.e. updates to m_begin are serialized with no lock
-                            // once m_begin is updated, area m_begin..(m_begin+bytes) is in exclusive use by this thread
+                        bool put(SERIALIZED serialized) {
+                            // Multiple threads runs this function,
+                            // simultaneously writing a serialized event
+                            // into some area which is in exclusive access by one single thread.
+                            // Areas are isolated, not crossing boundaries of each other,
+                            // multiple threads do not affect each other and the data is not corrupted.
+                            // Area is reserved atomically using compare_exchange on m_free.
+                            //
+                            // Until the end of the current buffer is reached (hi water mark), operation is completely threadsafe:
+                            // - every thread gets its own area to write an event [m_free, m_free + event_size)
+                            // - those areas are not interleaving
+                            //
+                            // At some point one or more threads reach 
+                            // the hi water mark and the buffer has to be signaled as "ready-to-be-consumed" 
+                            // and switched with the free one.
+                            // Signalling and switching is not thread safe because its a multi step operation.
+                            //
+                            // Here is a description of a lock free algorithm to perform buffer switch.
+                            // The buffer is a container of events, event occupy some area, no gaps between those areas, 
+                            // each area contains one serialized event, the event is generated by exactly one thread.
+                            // Concurrent threads placing an event into the buffer can be labeled according to 
+                            // a distance to the hi water wark:
+                            // - "early" thread's area [m_free, m_free + event_size) is completely below hi water mark,
+                            //   features:
+                            //     - responsibility is limited to event serialization only;
+                            //     - never waits
+                            //     - events delayed until the buffer is full (depends on other threads)  
+                            // - "late" thread's area [m_free, m_free + event_size) is completely above hi water mark,
+                            //   features:
+                            //     - responsibility is to wait until the buffer is switched
+                            //     - waits for "edge" thread to switch the buffer
+                            //     - events are delayed until buffer is switched + until the next buffer is full
+                            //     - once the buffer is switched, the thread is re-labeled as "early" or "edge" with corresponding responsibilities
+                            // - "edge" thread's area [m_free, m_free + event_size) starts below and ends above hi water mark,
+                            //   features:
+                            //     - responsibility is to signal the buffer and switch to the next available buffer
+                            //     - events are not delayed
+                            //
+                            // NOTE: regarding possible event drop.
+                            // The "edge" thread may drop events when no buffers are available. 
+                            //
+                            // NOTE: regarding "late" threads delays.
+                            // A "late" thread waits until "edge" thread switches the buffer. In case of no buffers available,
+                            // the "edge" thread drops the event and exits the function. This may leave all "late" threads
+                            // in the endless wait. To break this endless wait, "edge" thread updates and "late" threads monitors
+                            // some variable which indicates "break endless wait" and allows "late" threads to abandon the wait.
 
                             auto retries = m_retries_serialize;
-                            bool at_high_water = false;
+
+                            auto current_edge_drop_cc = m_edge_drop.load();
+
+                            continue here handle the restore from event drop
+                            "late" thread need to check for buffers availability
+                            otherwise all threads will stuck in "late" state
+
                             do {
-                                auto current_first_available_byte = m_first_available_byte.load();
-                                auto desired_first_available_byte = my_first_available_byte + serialized.bytes;
+                                // optimistically reserve the range [my_reserved_begins,my_reserved_ends)
+                                // compare_exchange_strong will confirm or reject that
+                                auto my_reserved_begins = m_free.load();
+                                auto my_reserved_ends = my_reserved_begins + serialized.bytes;
+                                auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
 
-                                // calculate the area begin and end optimistically in assumption no concurrent threads
-                                auto* my_begin = m_available.m_span.m_first_available + current_first_available_byte;
-                                auto* my_end = m_available.m_span.m_first_available + desired_first_available_byte;
+                                // my_reserved_begins beyond hi water mark means the current buffer is full 
+                                // and the current thread is "late" thread.
+                                // Two possible states:
+                                // - another concurrent thread (which is "edge" thread) is trying to pick up next available buffer,
+                                //   wait until it does; will loop on this condition, not moving forward
+                                //   until "edge" thread updates m_free or drops the event.
+                                // - no buffers are available;
+                                //   and some other thread must look for the available buffer;
+                                //   at this point any thread entering this function will be "late" (m_free beyond hi water mark)
+                                //   and will pickup the buffer
+                                if(my_reserved_begins >= m_last_used->m_header.m_hi_watermark) {
 
-                                // try gain exclusive access to my_begin ... my_begin + serialized.bytes area
-                                // no other thread could access this area
-                                if(m_first_available_byte.compare_exchange_strong(my_first_available_byte, reserved)) {
-                                    // even m_first_available_byte update is synchronized, the code below is not
-                                    // multiple threads may write into the current buffer simultaneously.
-                                    //
-                                    // What is important, each thread writes into its specific area, its thread safe.
-                                    // At some point one or more threads reaches the end of the buffer and this is not thread safe.
-                                    //
-                                    // Below described lock free algorithm which performs buffer switch in lock free mode.
-                                    //
-                                    // The buffer consists of areas, no gaps between, each area keeps one serialized event,
-                                    // areas may be labeled in relation to the hi water wark 
-                                    // (which is close to the end of the buffer but still enough space to keep the largest event):
-                                    // - "below watermark" (my_first_available_byte + serialized.bytes) < hi_water_mark
-                                    // - "above watermark" (my_first_available_byte) >= hi_water_mark
-                                    // - "edge" area starts below and ends above watermark
-                                    //    NOTE: due to continuous nature of integers there can be only one "edge" area, proved by math geeks
-                                    // Any area can be assigned to only one event,
-                                    // and the event is always associated with one thread,
-                                    // and due to compare_exchange there can be only one thread which gained control over the area.
-                                    // Concurrent threads can be labeled in relation to hi water wark:
-                                    // - "early" thread gets one of "below watermark" areas
-                                    //   responsibility if this thread is to serialize the event and exit the function
-                                    // - "late" thread can't get any area because there is no more bytes below "watermark"
-                                    //   responsibility if this thread is wait until the is "below watermark" area is available and 
-                                    //   this thread eventually becomes "early"
-                                    // - "edge" thread gets the area which starts below and ends above "watermark"
-                                    //   responsibility of this thread is to mark the buffer as dirty and to pick up next available clean buffer
-                                    if(my_begin >= m_available.m_span.m_hi_watermark) {
-                                        std::this_thread::yield();
-                                        continue; // "late" threads waits to become "early"
+                                    // pick up the next available buffer
+                                    auto* next = m_last_used->next_available();
+                                    if(next == m_last_used) {
+                                        return false; // no buffers available at the moment, drop the event
                                     }
-                                        
-                                    // "early" and "edge" threads only beyond this point
+
+                                    if(m_free.compare_exchange_strong(my_reserved_begins, next->m_first_available)) {
+                                        // m_first_available is a pointer and is in unique bond with a buffer,
+                                        // so the value of next is the same for any number of threads at this point
+                                        m_last_used = next;
+                                    }
+                                    continue;
+                                }
+
+                                if(m_free.compare_exchange_strong(my_reserved_begins, my_reserved_ends)) {
+                                    
+                                    continue here with additional check using atomic event counter
+                                    to handle the possibility two threads update m_free with exact same values
+
+                                    // compare_exchange_strong guarantee no concurrent updates to m_free
+                                    // and the area between [my_reserved_begins, new_free) is in exclusive 
+                                    // use of the current thread (due to linearity of pointers). 
                                     m_in_use++;
-                                    serialized.into(my_begin);
+                                    // Note: multiple threads simultaneously write into a different areas of the current buffer. 
+                                    // m_in_use lets "edge" thread to wait for concurrent threads to finish the writing
+                                    serialized.into(my_reserved_begins);
                                     m_in_use--;
 
-                                    if(my_end < m_available.m_span.m_hi_watermark)
-                                        return true; // "early" thread exit
+                                    // this condition filters away "early" threads, they can exit now
+                                    if(my_reserved_ends < m_last_used->m_header.m_hi_watermark)
+                                        return true; 
 
-                                    // "edge" thread only
-                                    // 
+                                    // NOTE: there could be only one single thread ("edge" thread) at this point 
+                                    // due to linearity and continuity of address space
+                                    // there is exactly one range [my_reserved_begins, my_reserved_ends) with hi water mark inside
+                                    // and exactly one thread associated with this range
+                                    m_in_use_edge++;
                                     // wait for other "early" threads to finish writing and mark dirty
-                                    while(m_in_use.load() != 0) {
+                                    while(m_in_use.load(memory_order::memory_order_consume) != 0) {
                                         my_dirty_buffer_counter = m_dirty_buffer_counter.load();
                                         continue;
                                     }
-                                    m_current->dirty(++m_dirty_buffer_counter);
-
-                                    // lookup next avail buffer in the ring and update m_available to use it with next message
-                                    // when no buffers are available ->  and its time to ignore message
-                                    auto* next = m_available.m_buffer->m_next;
-                                    while(!platform::buffer_t::is_clean(next->m_handle)) {
-                                        if(next == m_available.m_buffer) {
-                                            // consumer is chocked, no available buffers in the ring, return error
-                                            // note m_available remains the same and this loop will be repeated 
-                                            return false; // "edge" thread exit when no buffers are available
-                                        }
-                                        next = next -> m_next;
-                                    }
-
-                                    // at this moment m_available still points to the buffer m_first_available_byte exceeds hi water mark
-                                    // and m_first_available_byte gets continuously incremented by "late" threads even more.
-                                    // While it is possible to simply update m_available with next buffer,
-                                    // next->hi_water_mark could be big enough to occasionally let one of those threads through hi water.
-                                    // It must be avoided by resetting m_first_available_byte to the lowest value 
-                                    // between current and next buffers watermarks.
-                                    // And only then update m_available because 
-                                    // the lowest high water mark will keep "late" threads waiting in the loop.
-                                    const auto next_span = next->available();
-                                    if(next_span.hi_water_mark < m_first_available_byte.load()) {
-                                        while(true) {
-                                            auto current = m_first_available_byte.load();
-                                            if(m_first_available_byte.compare_exchange_strong(current, next_span.hi_water_mark))
-                                                break;
-                                        }
-                                    }
-
-                                    m_available.set(next);
-
-                                    while(true) {
-                                        auto current = m_first_available_byte.load();
-                                        if(m_first_available_byte.compare_exchange_strong(current, 0))
-                                            break;
-                                    }
+                                    // notify consumer about this buffer
+                                    my_buffer->dirty(
+                                        my_reserved_ends-m_last_used->m_header.m_first_available, 
+                                        ++m_dirty_buffer_counter
+                                    );
+                                    m_in_use_edge--;
 
                                     return true; // "edge" thread exit
                             } while(--retries)

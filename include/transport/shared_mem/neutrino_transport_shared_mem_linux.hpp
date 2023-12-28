@@ -1,8 +1,5 @@
 #pragma once
 
-#define WIN32_LEAN_AND_MEAN
-#define VC_EXTRALEAN
-
 #include <memory>
 #include <string>
 #include <stdexcept>
@@ -16,310 +13,106 @@ namespace neutrino
   {
     namespace shared_memory
     {
-      namespace platform
+      namespace linux
       {
 
-        /// @brief allocates/maps a range of bytes as a shared memory 
+        /// @brief a tool to allocate/mmap a range of bytes as a shared memory;
+        /// uses memfd_* family of functions to create/open in-memory file and mmap this file 
         struct initializer_memfd_t
         {
-          initializer_memfd_t(std::size_t buffer_bytes);
-          initializer_memfd_t(unsigned int fd);
+          initializer_memfd_t(std::size_t buffer_bytes); /// consumer uses this ctor to create a shared memory
+          initializer_memfd_t(unsigned int fd); /// producer uses this ctor to connect to already existing shared memory (fd is inherited from consumer)
           ~initializer_memfd_t();
 
+          /// @return ptr to the first byte of a shared memory or null if not initialized
           uint8_t* data() { return m_rptr; }
+          /// @return a size in bytes of a shared memory
           std::size_t size() const { return m_bytes; }
             
           unsigned int m_fd = -1; /// fd of memfd
           uint8_t* m_rptr = nullptr; /// mmap shared mem ptr
-          std::size_t m_bytes; /// size in bytes of a single buffer
+          std::size_t m_bytes = 0; /// size in bytes of a single buffer
         };
 
-        /// @brief this struct binds together types/functions/constants related to v00 shared header
-        struct v00_shared_header_control {
+        /// @brief binds together types/functions/constants related to v00 shared header;
+        /// one purpose is to simplify calculations on a set of events
+        struct v00_shared_header_control_t {
 
-          struct event_checkpoint {
+          /// @brief wrapper struct includes al known events definitions and metadata about them
+          struct events_set_t {
+            struct event_checkpoint_t {
 
+            };
+
+            struct event_context_t {
+
+            };
+
+            static constexpr std::size_t biggest_event_size_bytes = std::max({sizeof(event_checkpoint_t), sizeof(event_context_t)});
           };
 
-          struct event_context {
-
-          };
-
-          struct alignas(uint64_t) header_t
+          /// @brief header or a shared buffer, consumer and producer access processes
+          struct alignas(uint64_t) shared_header_t
           {
+            /// states:
+            /// - "blocked/signalled" (value ==0) consumer waits, producer adds events    
+            /// - "unblocked/not signaled" (value >0) consumer reads the events, producer tries if the buffer is free
             sem_t m_ready; 
-            uint64_t m_inuse_bytes = 0;
-            uint64_t m_sequence = 0;
+            /// filled by dirty(), tells consumer how many bytes are occupied by events data;
+            /// needed because the buffer may include some different amount of bytes, 
+            /// the buffer is signalled when there is not enough space to put a biggest event (hi watermark is reached)
+            /// states:
+            /// - ==0 the buffer is clean, producer may add new events (a producer maintains its own counter of bytes available), consumer is blocked
+            /// - >0 the buffer is dirty/signaled, producer may not touch the buffer, consumer process the events 
+            std::atomic_uint64_t m_inuse_bytes = 0; 
+            /// indicates an order in which buffers are marked "ready to be consumed", 
+            /// needed to help resolve ambiguity consumer side if signals were delayed or processed in out of order
+            std::atomic_uint64_t m_sequence = 0; 
 
-            header_t() {
-              if( sem_init(&m_ready, 1 /* this sem is shared between processes */, 1) != 0 ) {
-                error(errno, "format_at.sem_init");
-              }
-            }
+            void destroy() noexcept; 
+            bool is_clean() noexcept; 
+            void clear() noexcept; 
+            void dirty(const uint64_t bytes, const uint64_t sequence) noexcept;
           };
 
-          const std::size_t biggest_event_bytes = std::max({sizeof(event_checkpoint), sizeof(event_context)});
-          const std::size_t min_bytes_needed = sizeof(header_t) + biggest_event_bytes;
+          /// @brief how many bytes can
+          const std::size_t smallest_buffer_size_bytes = sizeof(shared_header_t) + events_set_t::biggest_event_size_bytes;
 
+          /// @brief this struct aggregates shared header ptr and corresponding buffer sizes
           struct header_control_t {
-            header_t * m_header = nullptr;
+            shared_header_t * m_header = nullptr;
             uint8_t* m_first_available = nullptr;
             uint8_t* m_hi_water_mark = nullptr;
+            uint8_t* m_end = nullptr;
           };
-
-          static void destroy(header_t*); 
-          static bool is_clean(const header_t*); 
-          static void clear(header_t*); 
-          static void dirty(header_t*, const uint64_t sequence);
 
           /// format helper; 
           /// @return header ptr or nullptr if not enough space or unable to initialize semaphore
-          header_control_t format_at(uint8_t* start, std::size_t bytes_available) {
+          header_control_t format_at(uint8_t* start, bool create_new, std::size_t bytes_available) {
 
-            if(min_bytes_needed > bytes_available)
+            if(smallest_buffer_size_bytes > bytes_available)
               return header_control_t{};
 
-            return header_control_t {
-              .m_header = new (start) header_t,
-              .m_first_available = start + sizeof(header_t),
-              .m_hi_water_mark = start + bytes_available - biggest_event_bytes
+
+            /// try initialize header over given position
+            header_control_t ret{
+              .m_header = new (start) shared_header_t,
+              .m_first_available = start + sizeof(shared_header_t),
+              .m_hi_water_mark = start + bytes_available - events_set_t::biggest_event_size_bytes,
+              .m_end = start + bytes_available,
             };
+
+            if(create_new) {
+              if( sem_init(&(ret.m_header->m_ready), 1 /* this sem is shared between processes */, 1) != 0 ) {
+                error(errno, "format_at.sem_init");
+              }
+            }
+
+            return ret;
           }
         };
-
       }
     }
   }
 }
 
-namespace neutrino
-{
-    namespace impl
-    {
-        namespace memory
-        {
-            namespace linux_shared_mem
-            {
-              struct buffer_initializer_t {
-                std::unique_ptr<neutrino::>
-              }
-
-
-                void print_stats(std::ostream& out);
-
-                struct v00_names_t
-                {
-                    v00_names_t(unsigned long pid, const std::string& domain, const std::string& suffix);
-                    v00_names_t(std::string shmm_name, std::string event_name, std::string sem_name);
-
-                    const v00_names_t with_suffix(const std::string& sf) const;
-
-                    const std::string m_shmm_name;
-                    const std::string m_event_name;
-                    const std::string m_sem_name;
-                };
-
-                enum class OPEN_MODE
-                {
-                    CREATE
-                    , OPEN
-                };
-
-                struct alignas(alignof(uint64_t)) v00_header_t
-                {
-                    DWORD m_header_size;
-                    DWORD m_dwLayoutVersion;
-                    DWORD m_hostPID; /// host app reading from a buffer
-                    DWORD m_dwMaximumSize;
-                    alignas(alignof(uint64_t)) LONG64 m_inuse_bytes;
-                    alignas(alignof(uint64_t)) LONG64 m_sequence;
-
-                    v00_header_t(OPEN_MODE op, DWORD dwMaximumSize);
-                    std::size_t size() const { return sizeof(*this); }
-
-                    // not thread safe
-                    void set_inuse(const LONG64 inuse, const LONG64 diff_started) noexcept;
-                    // not thread safe
-                    void set_free() noexcept;
-                };
-
-                struct v00_sync_t //: public shared_memory::sync_t
-                {
-                    HANDLE m_hevent = INVALID_HANDLE_VALUE;
-                    HANDLE m_hsem = INVALID_HANDLE_VALUE;
-
-                    v00_sync_t(OPEN_MODE op, const v00_names_t&);
-                    ~v00_sync_t();
-
-                    const bool is_clean() const noexcept;
-                    void dirty() noexcept;
-                    void clear() noexcept;
-                };
-
-                struct v00_base_buffer_t : public shared_memory::buffer_t {
-
-                  struct mapped_memory_layout_t
-                  {
-                    v00_header_t m_header;
-                    uint8_t m_first_byte;
-                    mapped_memory_layout_t(OPEN_MODE op, DWORD dwMaximumSize)
-                      : m_header(op, dwMaximumSize) {}
-                  };
-
-                  HANDLE m_hshmm = INVALID_HANDLE_VALUE;
-                  LPVOID m_mapped_memory = nullptr;
-
-                  v00_sync_t& m_sync;
-                  mapped_memory_layout_t* m_data; // inplace ctor, not a dynamic memory resource
-                  const uint64_t m_data_size;
-                  const std::chrono::steady_clock::time_point m_started; // TODO: for set_inuse
-
-                  const bool is_clean() const noexcept final { return m_sync.is_clean(); }
-
-                  void clear() noexcept final {
-                    //char buf[200];
-                    //snprintf(buf, sizeof(buf) / sizeof(buf[0]), "clear %lld\n", m_data->m_header.m_sequence);
-                    //std::cerr << buf;
-                    m_sync.clear();
-                    m_data->m_header.set_free();
-                  }
-
-                  virtual shared_memory::buffer_t* get_next() const noexcept
-                  {
-                    return m_next;
-                  }
-
-                  v00_base_buffer_t(OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size, v00_sync_t& sync, buffer_t* b, std::chrono::steady_clock::time_point started);
-                  ~v00_base_buffer_t();
-
-                };
-
-
-                struct v00_buffer_t : public v00_base_buffer_t
-                {
-                  using v00_base_buffer_t::v00_base_buffer_t;
-                  std::atomic<uint64_t> m_occupied = 0;
-
-                    void dirty(uint64_t dirty_buffer_counter) noexcept final {
-                      //char buf[200];
-                      //snprintf(buf, sizeof(buf) / sizeof(buf[0]), "dirty %lld\n", dirty_buffer_counter);
-                      //std::cerr << buf;
-                      m_data->m_header.set_inuse(
-                        m_occupied.load()
-                        //, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count()
-                        , dirty_buffer_counter
-                      );
-                      m_occupied = 0;
-                      m_sync.dirty();
-                    }
-
-                    span_t get_span(const uint64_t length) noexcept final;
-
-                    span_t get_data() noexcept final
-                    {
-                      m_occupied = m_data->m_header.m_inuse_bytes; // TODO: needs mem fence!!!
-                      const uint64_t sequence = m_data->m_header.m_sequence;
-                      //char buf[200];
-                      //snprintf(buf, sizeof(buf) / sizeof(buf[0]), "get data %lld bytes %lld\n", sequence, m_occupied.load());
-                      //std::cerr << buf;
-                      return { &m_data->m_first_byte, m_occupied.load(), sequence };
-                    }
-                };
-
-                struct v00_singlethread_buffer_t : public v00_base_buffer_t
-                {
-                  using v00_base_buffer_t::v00_base_buffer_t;
-                  uint64_t m_occupied = 0;
-
-                  void dirty(uint64_t dirty_buffer_counter) noexcept final {
-                    //char buf[200];
-                    //snprintf(buf, sizeof(buf) / sizeof(buf[0]), "dirty %lld\n", dirty_buffer_counter);
-                    //std::cerr << buf;
-                    m_data->m_header.set_inuse(
-                      m_occupied
-                      //, std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - m_started).count()
-                      , dirty_buffer_counter
-                    );
-                    m_occupied = 0;
-                    m_sync.dirty();
-                  }
-
-                  span_t get_span(const uint64_t length) noexcept final;
-
-
-                  span_t get_data() noexcept final
-                  {
-                    m_occupied = m_data->m_header.m_inuse_bytes; // TODO: needs mem fence!!!
-                    const uint64_t sequence = m_data->m_header.m_sequence;
-                    //char buf[200];
-                    //snprintf(buf, sizeof(buf) / sizeof(buf[0]), "get data %lld bytes %lld\n", sequence, m_occupied.load());
-                    //std::cerr << buf;
-                    return { &m_data->m_first_byte, m_occupied, sequence };
-                  }
-                };
-
-                struct v00_base_pool_t : public shared_memory::pool_t {
-                  std::vector<std::shared_ptr<v00_sync_t>> m_syncs;
-                  std::vector<std::shared_ptr<v00_base_buffer_t>> m_buffers;
-                  std::chrono::steady_clock::time_point m_started;
-
-                  v00_base_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size);
-                  ~v00_base_pool_t();
-                };
-
-                struct v00_pool_t : public v00_base_pool_t
-                {
-                  std::atomic<shared_memory::buffer_t*> m_buffer{ nullptr };
-
-                  shared_memory::buffer_t* get_buffer() override {
-                    return m_buffer.load();
-                  };
-
-                  bool set_buffer(shared_memory::buffer_t* x) override {
-                    auto current = m_buffer.load();
-                    return m_buffer.compare_exchange_weak(current, x);
-                  }
-
-                  v00_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size);
-                };
-
-                struct v00_singlethread_pool_t : public v00_base_pool_t
-                {
-                  shared_memory::buffer_t* m_buffer{ nullptr };
-
-                  shared_memory::buffer_t* get_buffer() override {
-                    return m_buffer;
-                  };
-
-                  bool set_buffer(shared_memory::buffer_t* x) override {
-                    m_buffer = x;
-                    return true;
-                  }
-
-                  v00_singlethread_pool_t(std::size_t num_buffers, OPEN_MODE op, const v00_names_t& nm, const DWORD buf_size);
-                };
-
-                // TODO: consumer-only header?
-                struct v00_async_listener_t
-                {
-                  std::vector<HANDLE> m_sync_handles;
-                  HANDLE m_stop_event;
-                  std::shared_ptr<v00_pool_t> m_pool;
-
-                  struct parameters_t
-                  {
-                    std::size_t m_ready_data_size; // size of m_ready_data, bigger size allows avoid copy of span_t
-                  };
-                  
-                  std::shared_ptr<parameters_t> m_params;
-
-                  v00_async_listener_t(std::shared_ptr<v00_pool_t> pool);
-                  ~v00_async_listener_t();
-
-                  // starts new thread, returns cancellation function
-                  std::function<void()> start(std::function <void(const uint64_t sequence, const uint8_t* p, const uint8_t* e)> consume_one);
-                };
-            };
-        }
-    }
-}
