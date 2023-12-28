@@ -38,21 +38,65 @@ namespace neutrino
         /// one purpose is to simplify calculations on a set of events
         struct v00_shared_header_control_t {
 
+          enum class EVENT : std::uint64_t {
+            CHECKPOINT = 1,
+            CONTEXT_ENTER,
+            CONTEXT_LEAVE,
+            CONTEXT_EXCEPTION
+          }
+
           /// @brief wrapper struct includes al known events definitions and metadata about them
           struct events_set_t {
-            struct event_checkpoint_t {
 
+            struct alignas(uint64_t) event_base_t {
+              EVENT m_ev;
+              neutrino_nanoepoch_t m_ne;
+              neutrino_stream_id_t m_sid;
+              neutrino_event_id_t m_eid;
+              static constexpr std::size_t bytes = sizeof(event_base_t);
+              void event_into(uint8_t* start, const EVENT ev) {
+                  memcpy(start, &ev, sizeof(ev));
+                  memcpy(start + sizeof(ev), this, sizeof(this));
+              }
             };
 
-            struct event_context_t {
+            struct alignas(uint64_t) event_checkpoint_t : public event_base_t {
+              using event_base_t::event_base_t;
 
+              void into(uint8_t* start) {
+                  event_into(start, EVENT::CHECKPOINT);
+              }
             };
 
-            static constexpr std::size_t biggest_event_size_bytes = std::max({sizeof(event_checkpoint_t), sizeof(event_context_t)});
+            struct event_context_enter_t : public event_base_t {
+              using event_base_t::event_base_t;
+
+              void into(uint8_t* start) {
+                  event_into(start, EVENT::CONTEXT_ENTER);
+              }
+            };
+
+            struct event_context_leave_t : public event_base_t {
+              using event_base_t::event_base_t;
+
+              void into(uint8_t* start) {
+                  event_into(start, EVENT::CONTEXT_LEAVE);
+              }
+            };
+
+            struct event_context_exception_t : public event_base_t {
+              using event_base_t::event_base_t;
+
+              void into(uint8_t* start) {
+                  event_into(start, EVENT::CONTEXT_EXCEPTION);
+              }
+            };
+
+            static constexpr std::size_t biggest_event_size_bytes = std::max({event_checkpoint_t::bytes, event_context_t::bytes});
           };
 
           /// @brief header or a shared buffer, consumer and producer access processes
-          struct alignas(uint64_t) shared_header_t
+          struct alignas(uint64_t) header_t
           {
             /// states:
             /// - "blocked/signalled" (value ==0) consumer waits, producer adds events    
@@ -69,6 +113,7 @@ namespace neutrino
             /// needed to help resolve ambiguity consumer side if signals were delayed or processed in out of order
             std::atomic_uint64_t m_sequence = 0; 
 
+            void format(bool is_new) noexcept; 
             void destroy() noexcept; 
             bool is_clean() noexcept; 
             void clear() noexcept; 

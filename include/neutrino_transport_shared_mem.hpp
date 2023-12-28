@@ -9,8 +9,6 @@
 #include <thread>
 #include <cassert>
 
-#include "../neutrino_transport.hpp"
-
 namespace neutrino
 {
     /// @brief a producer generates events and a consumer reads those events;
@@ -154,7 +152,7 @@ namespace neutrino
                         //  - from clean to dirty by producer
                         //  - from dirty to clean by consumer
                         template <typename SERIALIZED>
-                        bool put(SERIALIZED serialized) noexcept {
+                        bool put(Args... args) noexcept {
                             if(m_free > m_last_used->m_handle.m_hi_water_mark) {
                                 auto* next = m_last_used -> next_available();
                                 // next_available() returning the same buffer means no free buffers at the moment
@@ -165,12 +163,15 @@ namespace neutrino
                                 m_free = m_last_used->m_handle.m_first_available;
                             }
 
+                            // create serialized presentation of the event using in-place new
+                            // to avoid unnecessary copy
+                            new (m_free) SERIALIZED(...args);
+
                             // buffer's hi water mark is set so to make sure the biggest message fits between hi water mark and the end of a buffer
                             // i.e. (m_hi_watermark + serialized.bytes) < buffer.end()
                             // no need to check for buffer overflow before adding the message
                             // and no other threads are using this buffer since this code is synchronized
-                            serialized.into(m_free);
-                            if((m_free += serialized.bytes) >= m_last_used->m_handle.m_hi_water_mark) {
+                            if((m_free += SERIALIZED::bytes) >= m_last_used->m_handle.m_hi_water_mark) {
                                 // the buffer has reached its high water mark, time to mark-dirty
                                 // mark as dirty notifies consumer it is ready to consume
                                 // the counter helps detect missed buffers
@@ -208,7 +209,6 @@ namespace neutrino
                         std::atomic_uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
                         std::atomic_int_fast64_t m_in_use = 0; // increments each time a thread is about to write to the buffer, decrements when write is done
-                        std::atomic_int_fast64_t m_in_use_edge = 0; // non zero while "edge" thread is in the function
 
                         lock_free_t(platform::buffers_ring_t& ring, const uint64_t retries_serialize)
                         : m_retries_serialize(retries_serialize) {
@@ -267,47 +267,39 @@ namespace neutrino
 
                             auto retries = m_retries_serialize;
 
-                            auto current_edge_drop_cc = m_edge_drop.load();
-
-                            continue here handle the restore from event drop
-                            "late" thread need to check for buffers availability
-                            otherwise all threads will stuck in "late" state
-
                             do {
                                 // optimistically reserve the range [my_reserved_begins,my_reserved_ends)
                                 // compare_exchange_strong will confirm or reject that
                                 auto my_reserved_begins = m_free.load();
-                                auto my_reserved_ends = my_reserved_begins + serialized.bytes;
-                                auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
+                                auto my_reserved_ends = my_reserved_begins + SERIALIZED::bytes;
 
-                                // my_reserved_begins beyond hi water mark means the current buffer is full 
-                                // and the current thread is "late" thread.
-                                // Two possible states:
-                                // - another concurrent thread (which is "edge" thread) is trying to pick up next available buffer,
-                                //   wait until it does; will loop on this condition, not moving forward
-                                //   until "edge" thread updates m_free or drops the event.
-                                // - no buffers are available;
-                                //   and some other thread must look for the available buffer;
-                                //   at this point any thread entering this function will be "late" (m_free beyond hi water mark)
-                                //   and will pickup the buffer
                                 if(my_reserved_begins >= m_last_used->m_header.m_hi_watermark) {
+                                    // hi water mark means the current buffer is full 
+                                    // and the current thread is "late" thread.
+                                    // It's time to look up for another buffer
 
-                                    // pick up the next available buffer
-                                    auto* next = m_last_used->next_available();
-                                    if(next == m_last_used) {
-                                        return false; // no buffers available at the moment, drop the event
+                                    auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
+                                    auto* next = my_buffer->next_available();
+                                    if(next == my_buffer) {
+                                        // same buffer returned means no buffers available at the moment, drop the event
+                                        return false;
                                     }
 
+                                    // m_first_available is a pointer and is unique inside buffer ring,
+                                    // one or more threads getting the same value of next will install the same value of m_first_available
+                                    // with no collide
                                     if(m_free.compare_exchange_strong(my_reserved_begins, next->m_first_available)) {
-                                        // m_first_available is a pointer and is in unique bond with a buffer,
-                                        // so the value of next is the same for any number of threads at this point
-                                        m_last_used = next;
+                                        m_last_used.store(next);
                                     }
+                                    std::this_thread::yield();
                                     continue;
                                 }
 
+                                // "early" and "edge" thread may reach this point
                                 if(m_free.compare_exchange_strong(my_reserved_begins, my_reserved_ends)) {
-                                    
+
+                                    auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
+
                                     continue here with additional check using atomic event counter
                                     to handle the possibility two threads update m_free with exact same values
 
@@ -325,10 +317,9 @@ namespace neutrino
                                         return true; 
 
                                     // NOTE: there could be only one single thread ("edge" thread) at this point 
-                                    // due to linearity and continuity of address space
-                                    // there is exactly one range [my_reserved_begins, my_reserved_ends) with hi water mark inside
-                                    // and exactly one thread associated with this range
-                                    m_in_use_edge++;
+                                    // due to linearity and continuity of address space:
+                                    // - there is exactly one range [my_reserved_begins, my_reserved_ends) with hi water mark inside
+                                    //   and exactly one thread associated with this range
                                     // wait for other "early" threads to finish writing and mark dirty
                                     while(m_in_use.load(memory_order::memory_order_consume) != 0) {
                                         my_dirty_buffer_counter = m_dirty_buffer_counter.load();
@@ -339,7 +330,6 @@ namespace neutrino
                                         my_reserved_ends-m_last_used->m_header.m_first_available, 
                                         ++m_dirty_buffer_counter
                                     );
-                                    m_in_use_edge--;
 
                                     return true; // "edge" thread exit
                             } while(--retries)
@@ -347,152 +337,10 @@ namespace neutrino
                             return false;
                         }
                     };
-                }
+                };
             }
-
-            /// @brief maintains a ring of buffers, keeps a pointer to a buffer in clean state, 
-            // updates this pointer to the next available buffer in the ring when the current buffer becomes "dirty"
-            template <typename SHARED_BUFFER_IMPL_T>
-            struct shared_buffers_ring_t
-            {
-                struct params_t
-                {
-                    std::size_t m_retries_on_overflow{10};
-                    std::chrono::microseconds m_sleep_on_overflow{ std::chrono::milliseconds{10} };
-                } const m_params;
-
-                virtual shared_buffer_t* get_buffer() = 0;
-                virtual bool set_buffer(shared_buffer_t*) = 0;
-
-                // implements spinner when all buffers in the ring are dirty
-                SHARED_BUFFER_IMPL_T* next_available(SHARED_BUFFER_IMPL_T* c, std::size_t bytes) const noexcept
-                {
-                    assert(c);
-                    auto* buf = c->m_next;
-
-                    assert(buf);
-
-                    auto retries = m_params.m_retries_on_overflow;
-                    while (retries > 0 && buf != c && !buf->is_clean())
-                    {
-                      buf = buf->m_next;
-                      assert(buf);
-                      retries--;
-                    }
-
-                    return buf;
-                }
-            };
-
-            template <typename SHARED_BUFFER_RING_IMPL_T>
-            struct v00_ring_consumer_proxy_t : public consumer_proxy_t
-            {
-                enum class EVENTS : uint8_t {
-                    CHECKPOINT = 1,
-                    CONTEXT_ENTER = 2,
-                    CONTEXT_LEAVE = 3,
-                    CONTEXT_EXCEPTION = 4
-                };
-
-                struct params_t
-                {
-                    std::size_t m_message_buf_watermark{ 0 };
-                    SHARED_BUFFER_IMPL_T::params_t m_ring_params;
-                } const m_params;
-
-                std::unique_ptr<SHARED_BUFFER_RING_IMPL_T> m_buffers_ring;
-
-                v00_ring_consumer_proxy_t(
-                    const params_t& po
-                    , std::unique_ptr<SHARED_BUFFER_RING_IMPL_T>&& buffers_ring
-                )
-                    : 
-                    m_params(po)
-                    , m_buffers_ring(std::move(buffers_ring))
-                {
-                }
-
-
-                void consume_checkpoint(
-                    const neutrino_nanoepoch_t& ne
-                    , const neutrino_stream_id_t& stream
-                    , const neutrino_event_id_t& event
-                ) override 
-                {
-                    constexpr const auto bytes = sizeof(EVENTS::CHECKPOINT) 
-                        + sizeof(neutrino_nanoepoch_t) 
-                        + sizeof(neutrino_stream_id_t) 
-                        + sizeof(neutrino_event_id_t);
-
-                    auto span = m_buffers_ring->next_available(bytes);
-
-                    std::memmove(span.m_span, &(EVENTS::CHECKPOINT), sizeof(EVENTS::CHECKPOINT));
-                    std::memmove(span.m_span, &ne, sizeof(ne));
-                    std::memmove(span.m_span, &(stream), sizeof(stream));
-                    std::memmove(span.m_span, &(event), sizeof(event));
-
-                };
-
-                void consume_context_enter(
-                    const neutrino_nanoepoch_t& ne
-                    , const neutrino_stream_id_t& stream
-                    , const neutrino_event_id_t& event
-                ) override 
-                {
-                    constexpr const auto bytes = sizeof(EVENTS::CONTEXT_ENTER) 
-                        + sizeof(neutrino_nanoepoch_t) 
-                        + sizeof(neutrino_stream_id_t) 
-                        + sizeof(neutrino_event_id_t);
-
-                    auto span = m_buffers_ring->next_available(bytes);
-
-                    std::memmove(span.m_span, &(EVENTS::CONTEXT_ENTER), sizeof(EVENTS::CONTEXT_ENTER));
-                    std::memmove(span.m_span, &ne, sizeof(ne));
-                    std::memmove(span.m_span, &(stream), sizeof(stream));
-                    std::memmove(span.m_span, &(event), sizeof(event));
-
-                };
-
-                void consume_context_leave(
-                    const neutrino_nanoepoch_t&
-                    , const neutrino_stream_id_t&
-                    , const neutrino_event_id_t&
-                ) override 
-                {
-                    constexpr const auto bytes = sizeof(EVENTS::CONTEXT_LEAVE) 
-                        + sizeof(neutrino_nanoepoch_t) 
-                        + sizeof(neutrino_stream_id_t) 
-                        + sizeof(neutrino_event_id_t);
-
-                    auto span = m_buffers_ring->next_available(bytes);
-
-                    std::memmove(span.m_span, &(EVENTS::CONTEXT_LEAVE), sizeof(EVENTS::CONTEXT_LEAVE));
-                    std::memmove(span.m_span, &ne, sizeof(ne));
-                    std::memmove(span.m_span, &(stream), sizeof(stream));
-                    std::memmove(span.m_span, &(event), sizeof(event));
-
-                };
-
-                void consume_context_exception(
-                    const neutrino_nanoepoch_t&
-                    , const neutrino_stream_id_t&
-                    , const neutrino_event_id_t&
-                ) override 
-                {
-                    constexpr const auto bytes = sizeof(EVENTS::CONTEXT_EXCEPTION) 
-                        + sizeof(neutrino_nanoepoch_t) 
-                        + sizeof(neutrino_stream_id_t) 
-                        + sizeof(neutrino_event_id_t);
-
-                    auto span = m_buffers_ring->next_available(bytes);
-
-                    std::memmove(span.m_span, &(EVENTS::CONTEXT_EXCEPTION), sizeof(EVENTS::CONTEXT_EXCEPTION));
-                    std::memmove(span.m_span, &ne, sizeof(ne));
-                    std::memmove(span.m_span, &(stream), sizeof(stream));
-                    std::memmove(span.m_span, &(event), sizeof(event));
-
-                };
-            };
         }
+
     }
+}
 }
