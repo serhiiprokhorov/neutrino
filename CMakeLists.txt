@@ -17,40 +17,33 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# TODO: case independent/stripped/normalized
-set(NEUTRINO_PLAT_IMPL_EXT "unknown")
-string(TOLOWER ${CMAKE_SYSTEM_NAME} NEUTRINO_PLAT_IMPL_EXT)
+message(STATUS "compile ${CMAKE_BUILD_TYPE}")
+message(STATUS "platform ${NEUTRINO_PLATFORM}")
+message(STATUS "UT ${NEUTRINO_UT}")
+message(STATUS "transport ${NEUTRINO_TRANSPORT}")
+message(STATUS "transport version ${NEUTRINO_TRANSPORT_VERSION}")
 
-# variables coing from CMakePresets.json
-message(STATUS "Neutrino producer lib ${NEUTRINO_PRODUCER_V00_LIB}")
-if(NEUTRINO_PRODUCER_V00_LIB)
-	message(STATUS "Neutrino producer mt ${NEUTRINO_PRODUCER_MT}")
-endif()
-message(STATUS "Neutrino consumer lib ${NEUTRINO_CONSUMER_V00_LIB}")
-message(STATUS "Neutrino UT ${NEUTRINO_UT}")
-message(STATUS "Neutrino target CMAKE_SYSTEM_NAME ${CMAKE_SYSTEM_NAME}")
-message(STATUS "CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR}")
-message(STATUS "CMAKE_LIBRARY_ARCHITECTURE ${CMAKE_LIBRARY_ARCHITECTURE}")
-message(STATUS "platform implementation extention ${NEUTRINO_PLAT_IMPL_EXT}")
+add_library(consumer_lib STATIC)
+add_library(producer_lib STATIC)
+add_library(ut_lib STATIC)
 
-# hardcoded, until external module repository is adopted
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
+target_sources(producer_lib
+	PRIVATE 
+	${PROJECT_SOURCE_DIR}/src/neutrino_producer_${NEUTRINO_TRANSPORT}_${NEUTRINO_SHARED_MEM_LAYOUT}_${NEUTRINO_PLATFORM}.cpp
+	${PROJECT_SOURCE_DIR}/src/${NEUTRINO_TRANSPORT}_${NEUTRINO_PLATFORM}.cpp
+)
+target_sources(consumer_lib
+	PRIVATE 
+	${PROJECT_SOURCE_DIR}/src/neutrino_consumer_${NEUTRINO_TRANSPORT}_${NEUTRINO_SHARED_MEM_LAYOUT}_${NEUTRINO_PLATFORM}.cpp
+	${PROJECT_SOURCE_DIR}/src/${NEUTRINO_TRANSPORT}_${NEUTRINO_PLATFORM}.cpp
+)
+target_sources(ut_lib
+	PRIVATE 
+	${PROJECT_SOURCE_DIR}/src/neutrino_consumer_${NEUTRINO_TRANSPORT}_${NEUTRINO_SHARED_MEM_LAYOUT}_${NEUTRINO_PLATFORM}.cpp
+	${PROJECT_SOURCE_DIR}/src/neutrino_producer_${NEUTRINO_TRANSPORT}_${NEUTRINO_SHARED_MEM_LAYOUT}_${NEUTRINO_PLATFORM}.cpp
+	${PROJECT_SOURCE_DIR}/src/${NEUTRINO_TRANSPORT}_${NEUTRINO_PLATFORM}.cpp
+)
 
-
-# include gt specific stuff only with unit testing enabled
-if(NEUTRINO_UT)
-	include(neutrino_ut_tools)
-endif()
-
-if(NEUTRINO_PRODUCER_V00_LIB)
-	include(neutrino_producer_v00_lib)
-endif()
-
-if(NEUTRINO_CONSUMER_V00_LIB)
-	include(neutrino_consumer_v00_lib)
-endif()
-
-if(NEUTRINO_UT)
-	#TODO is it needed?
-	include(neutrino_ut_v00_lib_gtest)
-endif()
+target_include_directories(consumer_lib PRIVATE ${PROJECT_SOURCE_DIR}/include )
+target_include_directories(producer_lib PRIVATE ${PROJECT_SOURCE_DIR}/include )
+target_include_directories(ut_lib PRIVATE ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/ut )
