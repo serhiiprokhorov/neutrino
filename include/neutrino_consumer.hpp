@@ -13,21 +13,21 @@ namespace neutrino
             const neutrino_nanoepoch_t&
             , const neutrino_stream_id_t&
             , const neutrino_event_id_t&
-        ) {};
+        ) noexcept {};
         virtual void consume_context_enter(
             const neutrino_nanoepoch_t&
             , const neutrino_stream_id_t&
             , const neutrino_event_id_t&
-        ) {};
+        ) noexcept {};
         virtual void consume_context_leave(
             const neutrino_nanoepoch_t&
             , const neutrino_stream_id_t&
             , const neutrino_event_id_t&
-        ) {};
+        ) noexcept {};
         virtual void consume_context_exception(
             const neutrino_nanoepoch_t&
             , const neutrino_stream_id_t&
             , const neutrino_event_id_t&
-        ) {};
+        ) noexcept {};
     };
 } // neutrino

@@ -36,6 +36,7 @@ namespace neutrino
         unsigned int m_fd; /// fd of memfd
         uint8_t* m_rptr; /// mmap shared mem ptr
         std::size_t m_bytes; /// size in bytes of a single buffer
+        bool m_is_consumer = true;
       };
     }
   }

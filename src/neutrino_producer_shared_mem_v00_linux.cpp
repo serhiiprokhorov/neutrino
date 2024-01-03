@@ -1,13 +1,13 @@
 #include <chrono>
 #include <memory>
 
-#include <neutrino_transport.hpp>
 #include <neutrino_transport_shared_mem_v00_linux.hpp>
+#include <neutrino_transport_shared_mem.hpp>
+#include <neutrino_transport.hpp>
 
-using namespace neutrino;
 using namespace neutrino::transport::shared_memory;
 
-typedef br_t buffers_ring_t<v00_buffer_layout_t, v00_events_set_t>;
+typedef buffers_ring_t<v00_buffer_layout_t, v00_events_set_t> br_t;
 
 struct consumer_control_t {
     std::unique_ptr<linux::initializer_memfd_t> m_memory;

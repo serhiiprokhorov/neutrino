@@ -13,7 +13,7 @@ initializer_memfd_t::~initializer_memfd_t()
 }
 
 initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes)
-  : m_bytes(buffer_bytes)
+  : m_is_consumer(true), m_bytes(buffer_bytes)
 {
   m_fd = memfd_create("initializer_memfd_t::buffer_t", MFD_ALLOW_SEALING);
   if (m_fd == -1) {
@@ -41,7 +41,7 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes)
 }
 
 initializer_memfd_t::initializer_memfd_t(unsigned int fd)
-  : m_fd(fd)
+  : m_is_consumer(false), m_fd(fd)
 {
   // fd exists but the size is unknown
   errno = 0;

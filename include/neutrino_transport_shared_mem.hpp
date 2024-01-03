@@ -41,14 +41,14 @@ namespace neutrino
                 /// @brief ring helper struct, also exposes func requirements to SHARED_HEADER template
                 struct buffer_t final
                 {
-                    SHARED_HEADER * const m_header = nullptr;
+                    std::unique_ptr<SHARED_HEADER> const m_header = nullptr;
                     uint8_t* const m_first_available = nullptr;
                     uint8_t* const m_end = nullptr;
                     uint8_t* const m_hi_water_mark = nullptr;
                     buffer_t* m_next = nullptr; // ptr to the next available buffer
 
-                    buffer_t(SHARED_HEADER* header, const std::size_t bytes_available)
-                        : m_header(header)
+                    buffer_t(std::unique_ptr<SHARED_HEADER>&& header, const std::size_t bytes_available)
+                        : m_header(std::move(header))
                         , m_first_available(reinterpret_cast<uint8_t*>(m_header) + sizeof(SHARED_HEADER))
                         , m_end(reinterpret_cast<uint8_t*>(m_header) + bytes_available)
                         , m_hi_water_mark(m_end - EVENT_SET::biggest_event_size_bytes)
@@ -56,25 +56,6 @@ namespace neutrino
                     }
 
                     static constexpr std::size_t smallest_bytes = sizeof(SHARED_HEADER) + EVENT_SET::biggest_event_size_bytes;
-
-                    /// format helper; 
-                    /// @return header ptr or nullptr if not enough space or unable to initialize semaphore
-                    static buffer_t new_at(uint8_t* const start, const std::size_t bytes_available) {
-                        return smallest_bytes > bytes_available
-                            ? buffer_t{}
-                            : buffer_t( new (start) SHARED_HEADER, bytes_available);
-                    }
-
-                    static buffer_t assume_at(uint8_t* const start, const std::size_t bytes_available) {
-                        return smallest_bytes > bytes_available
-                            ? buffer_t{}
-                            : buffer_t( reinterpret_cast<SHARED_HEADER*>(start), bytes_available);
-                    }
-
-
-                    operator bool() const {
-                        return m_header != nullptr;
-                    }
 
                     ~buffer_t() = default;
 
@@ -97,32 +78,48 @@ namespace neutrino
 
                 /// @brief creates buffers ring on top of a given shared memory block using SHARED_HEADER metadata
                 template <typename INITIALIZER>
-                buffers_ring_t(INITIALIZER& memory, bool create_new, std::size_t cc_buffers) {
-                    // cut the given range of shared memory into the requested number of buffers
+                buffers_ring_t(INITIALIZER& memory, std::size_t cc_buffers) {
+
+                    if(cc_buffers < 1) {
+                        throw std::runtime_error("buffers_ring_t: cc_buffers < 1");
+                    }
+
+                    // split the given piece of shared memory into the requested number of buffers
                     // make sure it is enough space to format single buffer as a given SHARED_HEADER
                     const auto bytes_per_buffer = memory.size() / cc_buffers;
+
+                    if(bytes_per_buffer < buffer_t::smallest_bytes) {
+                        char buf[2000];
+                        snprintf(buf, sizeof(buf) - 1, 
+                            "buffers_ring_t: bytes_per_buffer=%lld < buffer_t::smallest_bytes(%lld)", 
+                                bytes_per_buffer, buffer_t::smallest_bytes);
+                        throw std::runtime_error( buf );
+                    }
 
                     m_buffers.reserve(cc_buffers);
 
                     uint8_t * start = memory.data();
                     uint8_t * end = start + memory.size();
 
+                    // the deleter below helps call SHARED_HEADER::destroy for consumer app only
+                    // it seems logical to simply keep is_consumer inside SHARED_HEADER
+                    // but it can't since this struct is shared between consumer and producer apps
+                    auto deleter = memory.m_is_consumer 
+                        ? [](SHARED_HEADER* ptr) { m_header->destroy(); } // destroy if consumer
+                        : [](SHARED_HEADER* ptr) {}; // do nothing if producer
+
                     while(start < end)
                     {
-                        if(!m_buffers.emplace_back(SHARED_HEADER::format_at(start, create_new, bytes_per_buffer))) {
-                            // unable to format a header in a given area start...start+bytes_per_buffer
-                            // remove unformatted buffer and break the loop
-                            m_buffers.pop_back();
-                            break;
-                        }
+                        m_buffers.emplace_back( 
+                            std::unique_ptr<SHARED_HEADER>(new (start) SHARED_HEADER(memory.m_is_consumer), deleter)
+                            , bytes_per_buffer 
+                            );
+                        m_buffers.back()->m_header->init();
                         start += bytes_per_buffer;
                     };
 
-                    if(m_buffers.size())
-                    {
-                        // NOTE: this func uses raw pointers, no further reallocations are allowed 
-                        make_ring();
-                    }
+                    // NOTE: this func uses raw pointers, no further reallocations are allowed 
+                    make_ring();
                 }
 
                 buffer_t* get_first() { return &m_buffers.front(); }
@@ -155,7 +152,7 @@ namespace neutrino
             /// @brief places an event into the very first available buffer, handles mark-dirty and lookup-next-free
             template <typename BUFFER_RING>
             struct synchronized_producer_t {
-                typedef BUFFER_RING::EVENT_SET EVENT_SET;
+                typedef typename BUFFER_RING::EVENT_SET EVENT_SET;
 
                 BUFFER_RING::buffer_t* m_last_used;
 
@@ -164,7 +161,7 @@ namespace neutrino
                 uint8_t* m_free;
                 uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
-                synchronized_t(BUFFER_RING& current) {
+                synchronized_producer_t(BUFFER_RING& current) {
                     m_last_used = current.get_first();
                     m_free = m_last_used->m_handle.m_first_available;
                 }
@@ -206,41 +203,42 @@ namespace neutrino
                     return true;
                 }
             };
+
             // exclusive access is the same as synchronized + mutex
             template <typename BUFFER_RING>
             struct exclusive_producer_t final {
                 typedef BUFFER_RING::EVENT_SET EVENT_SET;
 
                 std::mutex m_mutex;
-                synchronized_t m_synchronized;
+                synchronized_producer_t<BUFFER_RING> m_synchronized;
 
-                exclusive_t(BUFFER_RING& current)
+                exclusive_producer_t(BUFFER_RING& current)
                 : m_synchronized(current) {}
 
                 template <typename SERIALIZED, typename... Args>
                 bool put(Args&&... serialized_args) noexcept {
                     std::lock_guard l(m_mutex);
                     // when lock is acquired, call synch version
-                    return m_synchronized.put(serialized_args);
+                    return m_synchronized.put<SERIALIZED>(serialized_args);
                 }
             };
+
             template <typename BUFFER_RING>
             struct lock_free_producer_t {
                 typedef BUFFER_RING::EVENT_SET EVENT_SET;
 
                 const uint64_t m_retries_serialize = 1;
 
-                std::atomic<BUFFER_RING::buffer_t*> m_last_used;
+                std::atomic<typename BUFFER_RING::buffer_t*> m_last_used;
                 std::atomic<uint8_t*> m_free;
                 std::atomic_uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
                 std::atomic_int_fast64_t m_in_use = 0; // increments each time a thread is about to write to the buffer, decrements when write is done
 
-                lock_free_t(BUFFER_RING& ring, const uint64_t retries_serialize)
+                lock_free_producer_t(BUFFER_RING& ring, const uint64_t retries_serialize)
                 : m_retries_serialize(retries_serialize) {
                     m_last_used = ring.get_first();
                     m_free = m_last_used.load()->m_header.m_first_available;
-                    m_first_available_byte.store(0);
                 }
 
                 template <typename SERIALIZED, typename... Args>
@@ -304,7 +302,7 @@ namespace neutrino
                             // and the current thread is "late" thread.
                             // It's time to look up for another buffer
 
-                            auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
+                            auto* my_buffer = m_last_used.load(std::memory_order::memory_order_consume);
                             auto* next = my_buffer->next_available();
                             if(next == my_buffer) {
                                 // same buffer returned means no buffers available at the moment, drop the event
@@ -324,10 +322,10 @@ namespace neutrino
                         // "early" and "edge" thread may reach this point
                         if(m_free.compare_exchange_strong(my_reserved_begins, my_reserved_ends)) {
 
-                            auto* my_buffer = m_last_used.load(memory_order::memory_order_consume);
+                            auto* my_buffer = m_last_used.load(std::memory_order::memory_order_consumed);
 
-                            continue here with additional check using atomic event counter
-                            to handle the possibility two threads update m_free with exact same values
+                            //continue here with additional check using atomic event counter
+                            //to handle the possibility two threads update m_free with exact same values
 
                             // compare_exchange_strong guarantee no concurrent updates to m_free
                             // and the area between [my_reserved_begins, new_free) is in exclusive 
@@ -347,8 +345,7 @@ namespace neutrino
                             // - there is exactly one range my_reserved_begins < hi_water_mark < my_reserved_ends
                             //   and exactly one thread associated with this range
                             // wait for other "early" threads to finish writing and mark dirty
-                            while(m_in_use.load(memory_order::memory_order_consume) != 0) {
-                                my_dirty_buffer_counter = m_dirty_buffer_counter.load();
+                            while(m_in_use.load(std::memory_order::memory_order_consume) != 0) {
                                 continue;
                             }
                             // notify consumer about this buffer
@@ -358,11 +355,12 @@ namespace neutrino
                             );
 
                             return true; // "edge" thread exit
+                        }
                     } while(--retries)
 
                     return false;
                 }
             };
-        };
+        }
     }
 }

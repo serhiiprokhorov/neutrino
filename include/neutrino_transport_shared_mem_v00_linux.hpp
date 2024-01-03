@@ -1,9 +1,9 @@
 #pragma once
 
 #include <memory>
-#include <string>
 #include <stdexcept>
-#include <optional>
+#include <cstddef> 
+#include <cstdint> 
 
 #include "neutrino_types.h"
 #include "neutrino_transport_shared_mem.hpp"
@@ -16,7 +16,7 @@ namespace neutrino
     {
       /// @brief wrapper struct includes al known events definitions and metadata about them
       struct v00_events_set_t {
-        enum class EVENT : std::uint64_t {
+        enum class EVENT : uint64_t {
           CHECKPOINT = 1,
           CONTEXT_ENTER,
           CONTEXT_LEAVE,
@@ -29,14 +29,12 @@ namespace neutrino
           neutrino_stream_id_t m_sid;
           neutrino_event_id_t m_eid;
 
-          static constexpr std::size_t bytes = sizeof(event_base_t);
-
           event_base_t(
             EVENT ev,
             const neutrino_nanoepoch_t& ne,
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
-          ) : m_ev(ev), m_ne(*ne), m_sid(*sid), m_eid(*eid)
+          ) : m_ev(ev), m_ne(ne), m_sid(sid), m_eid(eid)
           {
           }
         };
@@ -47,6 +45,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CHECKPOINT, ne, sid, eid) {}
+          static constexpr std::size_t bytes = sizeof(event_base_t);
         };
 
         struct event_context_enter_t : public event_base_t {
@@ -55,6 +54,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_ENTER, ne, sid, eid) {}
+          static constexpr std::size_t bytes = sizeof(event_base_t);
         };
 
         struct event_context_leave_t : public event_base_t {
@@ -63,6 +63,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_LEAVE, ne, sid, eid) {}
+          static constexpr std::size_t bytes = sizeof(event_base_t);
         };
 
         struct event_context_exception_t : public event_base_t {
@@ -71,6 +72,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_EXCEPTION, ne, sid, eid) {}
+          static constexpr std::size_t bytes = sizeof(event_base_t);
         };
 
         static constexpr std::size_t biggest_event_size_bytes = 
@@ -95,13 +97,21 @@ namespace neutrino
         /// needed to help resolve ambiguity consumer side if signals were delayed or processed in out of order
         std::atomic_uint64_t m_sequence = 0;
 
-        v00_shared_header_t() {
-          if( sem_init(&m_ready, 1 /* this sem is shared between processes */, 1) != 0 ) {
-            error(errno, "format_at.sem_init");
+        v00_shared_header_t(const bool is_consumer) {
+          if(is_consumer) {
+            if( sem_init(&m_ready, 1 /* this sem is shared between processes */, 1) != 0 ) {
+              error(errno, "format_at.sem_init");
+            }
           }
         }
 
+        v00_shared_header_t(const v00_shared_header_t&) = delete;
+        v00_shared_header_t(v00_shared_header_t&)& = delete;
+        v00_shared_header_t& operator=(const v00_shared_header_t&) = delete;
+        v00_shared_header_t& operator=(v00_shared_header_t&&) = delete;
+
         void format(bool is_new) noexcept; 
+        void init() noexcept; 
         void destroy() noexcept; 
         bool is_clean() noexcept; 
         void clear() noexcept; 
