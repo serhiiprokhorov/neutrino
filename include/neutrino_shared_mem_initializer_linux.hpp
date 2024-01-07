@@ -24,7 +24,7 @@ namespace neutrino
           {}
         };
 
-        initializer_memfd_t(std::size_t buffer_bytes); /// consumer uses this ctor to create a shared memory
+        initializer_memfd_t(std::size_t buffer_bytes, const char*); /// consumer uses this ctor to create a shared memory
         initializer_memfd_t(unsigned int fd); /// producer uses this ctor to connect to already existing shared memory (fd is inherited from consumer)
         ~initializer_memfd_t();
 

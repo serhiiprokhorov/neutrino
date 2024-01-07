@@ -2,53 +2,94 @@
 #include <memory>
 #include <stdlib.h>
 
-#include <neutrino_shared_mem_linux.hpp>
-#include <neutrino_transport_shared_mem_v00_linux.hpp>
+#include <string_view>
+
+#include <neutrino_transport_shared_mem_v00_events.hpp>
+#include <neutrino_transport_shared_mem_v00_header_linux.hpp>
+#include <neutrino_shared_mem_initializer_linux.hpp>
+
+#include <neutrino_transport_shared_mem_buffer.hpp>
+#include <neutrino_transport_shared_mem_port.hpp>
+
+#include <neutrino_transport.hpp>
 
 using namespace neutrino::transport::shared_memory;
+
+typedef buffers_ring_t< v00_shared_header_t, v00_events_set_t> buffers_ring_v00_linux_t;
+
+typedef synchronized_port_t<buffers_ring_v00_linux_t> synchronized_port_v00_linux_t;
+typedef exclusive_port_t<buffers_ring_v00_linux_t> exclusive_port_v00_linux_t;
+typedef lock_free_port_t<buffers_ring_v00_linux_t> lock_free_port_v00_linux_t;
 
 struct consumer_control_v00_linux_t {
     std::unique_ptr<initializer_memfd_t> m_memory;
     std::unique_ptr<buffers_ring_v00_linux_t> m_ring;
     std::unique_ptr<consumer_t> m_consumer;
+
+    consumer_control_v00_linux_t() = default;
+    ~consumer_control_v00_linux_t() = default;
 };
 
-static std::unique_ptr<consumer_control_t> consumer_control;
+static std::unique_ptr<consumer_control_v00_linux_t> consumer_control;
 
 extern "C"
 {
 
 void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes)
 {
-    std::unique_ptr<consumer_control_t> my_consumer_control(new consumer_control_t);
+    const std::u8string_view cfg_view(cfg, cfg_bytes);
 
-    my_consumer_control->m_memory.reset(new initializer_memfd_t());
+    std::unique_ptr<consumer_control_v00_linux_t> my_consumer_control(new consumer_control_v00_linux_t);
 
+    if(cfg_view.find("consumer,") != std::string_view::npos) {
+        // TODO: get bytes from config
+        my_consumer_control->m_memory.reset(new initializer_memfd_t(1000000, nullptr));
+    } else {
+        char* cp_consumer_fd = getenv("NEUTRINO_CONSUMER_FD");
+        if(cp_consumer_fd == nullptr) {
+            // TODO: report error
+            return;
+        }
+        char* endptr = nullptr;
+        const auto consumer_fd = strtoul(cp_consumer_fd, &endptr, 10);
+        if(*endptr != '\x0') {
+            // TODO: report error
+            return;
+        }
+        my_consumer_control->m_memory.reset(new initializer_memfd_t(consumer_fd));
+    }
+
+    // TODO: get number of buffers from the config
     const std::size_t cc_buffers = 5;
     my_consumer_control->m_ring.reset(
         new buffers_ring_v00_linux_t(
-            *my_consumer_control->m_memory,
+            *(my_consumer_control->m_memory),
             cc_buffers
         )
         );
 
-    if(strncmp(cfg, "synchronized", cfg_bytes) == 0) {
+    if(cfg_view.find("synchronized,") != std::string_view) {
         my_consumer_control.m_consumer.reset(
-            new consumer_proxy_synchronized_port_shared_mem_v00_linux_t(
+            new consumer_proxy_t<synchronized_port_v00_linux_t>(
                 std::make_unique(new synchronized_port_v00_linux_t(*ret.m_ring))
-            ));
+            )
+        );
     }
     else if(strncmp(cfg, "exclusive", cfg_bytes) == 0) {
         my_consumer_control.m_consumer.reset(
-            new consumer_proxy_exclusive_port_shared_mem_v00_linux_t(
+            new consumer_proxy_t<exclusive_port_v00_linux_t>(
                 std::make_unique(new exclusive_port_v00_linux_t(*ret.m_ring))
-            ));
+            )
+        );
     }
     else if(strncmp(cfg, "lock_free", cfg_bytes) == 0) {
+        // TODO: get retries from the config
+        const uint64_t cc_retries_serialize = 10;
         my_consumer_control.m_consumer.reset(
-            new consumer_proxy_lock_free_port_shared_mem_v00_linux_t(
-                std::make_unique(new lock_free_port_v00_linux_t(*ret.m_ring, 1))
-            ));
+            new consumer_proxy_t<lock_free_port_v00_linux_t>(
+                std::make_unique(new lock_free_port_v00_linux_t(*ret.m_ring, cc_retries_serialize))
+            )
+        );
     }
 
     consumer_control.swap(my_consumer_control);
