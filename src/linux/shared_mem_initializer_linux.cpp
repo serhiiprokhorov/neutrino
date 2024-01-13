@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 
-#include <neutrino_shared_mem_linux.hpp>
+#include <neutrino_shared_mem_initializer_linux.hpp>
 
 namespace neutrino::transport::shared_memory
 {

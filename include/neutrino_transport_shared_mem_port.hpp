@@ -36,6 +36,7 @@ namespace neutrino
             struct synchronized_port_t {
                 typedef typename BUFFER_RING::EVENT_SET EVENT_SET;
 
+                std::unique_ptr<typename BUFFER_RING> m_ring;
                 BUFFER_RING::buffer_t* m_last_used;
 
                 // synchronized_t operates in a threadsafe environment
@@ -43,8 +44,10 @@ namespace neutrino
                 uint8_t* m_free;
                 uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
-                synchronized_producer_t(BUFFER_RING& current) {
-                    m_last_used = current.get_first();
+                template <typename BUFFER_RING_PTR>
+                synchronized_producer_t(BUFFER_RING_PTR&& ring) 
+                : m_ring(std::forward<BUFFER_RING_PTR>(ring)) {
+                    m_last_used = m_ring->get_first();
                     m_free = m_last_used->m_handle.m_first_available;
                 }
 
@@ -124,7 +127,7 @@ namespace neutrino
                 }
 
                 template <typename SERIALIZED, typename... Args>
-                bool put(SERIALIZED serialized, Args&&... serialized_args) {
+                bool put(Args&&... serialized_args) {
                     // Multiple threads runs this function,
                     // simultaneously writing a serialized event
                     // into some area which is in exclusive access by one single thread.

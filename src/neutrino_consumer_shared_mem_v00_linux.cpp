@@ -1,7 +1,0 @@
-
-namespace neutrino
-{
-    namespace impl
-    {
-    }
-}

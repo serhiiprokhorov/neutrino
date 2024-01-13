@@ -77,8 +77,9 @@ namespace neutrino
                 };
 
                 /// @brief creates buffers ring on top of a given shared memory block using SHARED_HEADER metadata
-                template <typename INITIALIZER>
-                buffers_ring_t(INITIALIZER& memory, std::size_t cc_buffers) {
+                template <typename INITIALIZER_PTR>
+                buffers_ring_t(INITIALIZER_PTR&& memory, std::size_t cc_buffers) 
+                : m_memory(std::forward<INITIALIZER_PTR>(memory)) {
 
                     if(cc_buffers < 1) {
                         throw std::runtime_error("buffers_ring_t: cc_buffers < 1");
@@ -125,6 +126,7 @@ namespace neutrino
                 buffer_t* get_first() { return &m_buffers.front(); }
 
             private:
+                std::unique_ptr<typename INITIALIZER> m_memory;
                 std::vector<buffer_t> m_buffers;
 
                 void make_ring() 

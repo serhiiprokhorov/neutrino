@@ -41,7 +41,7 @@ namespace neutrino
         }
 
         v00_shared_header_t(const v00_shared_header_t&) = delete;
-        v00_shared_header_t(v00_shared_header_t&)& = delete;
+        v00_shared_header_t(v00_shared_header_t&) = delete;
         v00_shared_header_t& operator=(const v00_shared_header_t&) = delete;
         v00_shared_header_t& operator=(v00_shared_header_t&&) = delete;
 
