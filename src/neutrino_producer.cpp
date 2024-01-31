@@ -1,10 +1,12 @@
 #include <chrono>
 #include <memory>
 #include <stdlib.h>
+#include <iostream>
 
 #include <string_view>
 
 #include <neutrino_producer.h>
+#include <neutrino_errors.hpp>
 
 
 extern "C"
@@ -49,7 +51,7 @@ neutrino_nanoepoch_t (*neutrino_nanoepoch)(void) = neutrino_nanoepoch_impl;
 
 void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes)
 {
-    const std::u8string_view cfg_view(cfg, cfg_bytes);
+    const std::string_view cfg_view(cfg, cfg_bytes);
 
     try
     {
@@ -65,16 +67,16 @@ void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes)
                     if(cfg_view.find("sync=lockfree") != std::string_view::npos) {
                         neutrino::producer::configure::shared_mem_v00_lockfree_linux(cfg_view);
                     } else {
-                        throw neutrino::helpers::unsupported_option("sync=...");
+                        throw neutrino::configure::unsupported_option("sync=...");
                     } 
                 } else {
-                    throw neutrino::helpers::unsupported_option("version=...");
+                    throw neutrino::configure::unsupported_option("version=...");
                 }
             } else {
-                throw neutrino::helpers::unsupported_option("platform=...");
+                throw neutrino::configure::unsupported_option("platform=...");
             }
         }
-        throw neutrino::helpers::unsupported_option("transport=...");
+        throw neutrino::configure::unsupported_option("transport=...");
     }
     catch(const std::exception& e)
     {

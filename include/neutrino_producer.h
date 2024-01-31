@@ -56,13 +56,9 @@ namespace neutrino
     {
         namespace configure
         {
-            struct unsupported_option : public std::runtime_error {
-                unsupported_option(std::string option) : std::runtime_error(option.append(" unsupported")) {}
-            };
-
-            void shared_mem_v00_synchronized_linux(const std::u8string_view&);
-            void shared_mem_v00_exclusive_linux(const std::u8string_view&);
-            void shared_mem_v00_lockfree_linux(const std::u8string_view&);
+            void shared_mem_v00_synchronized_linux(const std::string_view&);
+            void shared_mem_v00_exclusive_linux(const std::string_view&);
+            void shared_mem_v00_lockfree_linux(const std::string_view&);
         }
         namespace helpers
         {

@@ -1,46 +1,56 @@
 #include <chrono>
 #include <memory>
+#include <functional>
+
 #include <stdlib.h>
 
-#include <neutrino_transport_shared_mem_buffer_v00_linux.hpp>
+#include <neutrino_errors.hpp>
+#include "shared_mem_v00_buffer.hpp"
 
 namespace neutrino::transport::shared_memory {
 
-std::unique_ptr<buffers_ring_v00_linux_t> init_v00_base_linux(const std::string_view& cfg)
+mem_buf_v00_linux_t init_v00_buffers_ring(const std::string_view& cfg_view)
 {
-    const std::u8string_view cfg_view(cfg, cfg_bytes);
+    mem_buf_v00_linux_t ret;
 
-    auto memory_initializer = []() -> std::unique_ptr<initializer_memfd_t> { throw std::runtime_error("process=... is not supported"); }
-
-    std::unique_ptr<initializer_memfd_t> memory;
+    std::function<void(buffers_ring_v00_linux_t*)> buffer_deleter = [](buffers_ring_v00_linux_t*){};
 
     if( cfg_view.find("process=consumer") ) {
-        // consumer process
-        memory_initializer = []() { return std::unique_ptr<initializer_memfd_t>(new initializer_memfd_t(1000000, nullptr)); }
+        // this is consumer process, allocate the memory
+        ret.first.reset(new initializer_memfd_t(1000000, nullptr));
+
+        buffer_deleter = [](buffers_ring_v00_linux_t* d) { 
+            d->destroy_all();
+            delete d;
+        };
     } else {
-        // producer process
+        // this is producer process, map existing memory
         char* cp_consumer_fd = getenv("NEUTRINO_CONSUMER_FD");
         if(cp_consumer_fd == nullptr) {
-            // TODO: report error
-            return;
+            throw configure::missing_option("env var NEUTRINO_CONSUMER_FD");
         }
         char* endptr = nullptr;
         const auto consumer_fd = strtoul(cp_consumer_fd, &endptr, 10);
         if(*endptr != '\x0') {
-            // TODO: report error
-            return;
+            throw configure::missing_option("value must be numeric, env var NEUTRINO_CONSUMER_FD");
         }
-        memory_initializer = []() { return std::unique_ptr<initializer_memfd_t>(new initializer_memfd_t(consumer_fd)); }
+        ret.first.reset(new initializer_memfd_t(consumer_fd));
+
+        buffer_deleter = [](buffers_ring_v00_linux_t* d) { 
+            delete d;
+        };
     }
 
     // TODO: get number of buffers from the config
     const std::size_t cc_buffers = 5;
 
-    return std::unique_ptr<buffers_ring_v00_linux_t>(
-        new buffers_ring_v00_linux_t(
-            memory_initializer(),
-            cc_buffers
-        )
+    std::shared_ptr<buffers_ring_v00_linux_t> my_ret(
+        new buffers_ring_v00_linux_t(ret.first->data(), ret.first->size(), cc_buffers),
+        buffer_deleter
     );
+
+    ret.second.swap(my_ret);
+
+    return ret;
 }
 }

@@ -34,21 +34,16 @@ namespace neutrino
             /// @brief places an event into the very first available buffer, handles mark-dirty and lookup-next-free
             template <typename BUFFER_RING>
             struct synchronized_port_t {
-                typedef typename BUFFER_RING::EVENT_SET EVENT_SET;
-
-                std::unique_ptr<typename BUFFER_RING> m_ring;
-                BUFFER_RING::buffer_t* m_last_used;
+                typename BUFFER_RING::BUFFER* m_last_used;
 
                 // synchronized_t operates in a threadsafe environment
                 // with no other threads around
                 uint8_t* m_free;
                 uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
-                template <typename BUFFER_RING_PTR>
-                synchronized_producer_t(BUFFER_RING_PTR&& ring) 
-                : m_ring(std::forward<BUFFER_RING_PTR>(ring)) {
-                    m_last_used = m_ring->get_first();
-                    m_free = m_last_used->m_handle.m_first_available;
+                synchronized_port_t(typename BUFFER_RING::BUFFER* first_to_use) {
+                    m_last_used = first_to_use;
+                    m_free = m_last_used->m_first_available;
                 }
 
                 // scans available buffers for the first continuous span of memory to place the bytes requested
@@ -59,14 +54,14 @@ namespace neutrino
                 //  - from dirty to clean by consumer
                 template <typename SERIALIZED, typename... Args>
                 bool put(Args&&... serialized_args) noexcept {
-                    if(m_free > m_last_used->m_handle.m_hi_water_mark) {
+                    if(m_free > m_last_used->m_hi_water_mark) {
                         auto* next = m_last_used -> next_available();
                         // next_available() returning the same buffer means no free buffers at the moment
                         if(m_last_used == next)
                             return false; // drop the event
                         // reset the next buffer as last used and remember where it begins
                         m_last_used = next;
-                        m_free = m_last_used->m_handle.m_first_available;
+                        m_free = m_last_used->m_first_available;
                     }
 
                     // create a new serialized presentation in-place, 
@@ -76,12 +71,13 @@ namespace neutrino
                     // i.e. (m_hi_watermark + serialized.bytes) < buffer.end()
                     // no need to check for buffer overflow before adding the message
                     // and no other threads are using this buffer since this code is synchronized
-                    if((m_free += SERIALIZED::bytes) >= m_last_used->m_handle.m_hi_water_mark) {
+                    if((m_free += SERIALIZED::bytes()) >= m_last_used->m_hi_water_mark) {
                         // the buffer has reached its high water mark, time to mark-dirty
                         // mark as dirty notifies consumer it is ready to consume
                         // the counter helps detect missed buffers
-                        m_last_used->m_header.dirty(
-                            (m_free - m_last_used.m_header.m_first_available),
+                        BUFFER_RING::BUFFER::SHARED_HEADER::dirty(
+                            m_last_used->m_start, 
+                            (m_free - m_last_used->m_first_available),
                             ++m_dirty_buffer_counter
                         );
                     }
@@ -91,43 +87,39 @@ namespace neutrino
 
             // exclusive access is the same as synchronized + mutex
             template <typename BUFFER_RING>
-            struct exclusive_port_t final {
-                typedef BUFFER_RING::EVENT_SET EVENT_SET;
-
+            struct exclusive_port_t {
                 std::mutex m_mutex;
-                synchronized_port_t m_synchronized;
+                synchronized_port_t<BUFFER_RING> m_synchronized;
 
-                exclusive_port_t(BUFFER_RING& current)
-                : m_synchronized(current) {}
+                exclusive_port_t(BUFFER_RING::BUFFER* first_to_use)
+                : m_synchronized(first_to_use) {}
 
                 template <typename SERIALIZED, typename... Args>
                 bool put(Args&&... serialized_args) noexcept {
                     std::lock_guard l(m_mutex);
                     // when lock is acquired, call synch version
-                    return m_synchronized.put<SERIALIZED>(serialized_args);
+                    return m_synchronized.put(serialized_args...);
                 }
             };
 
             template <typename BUFFER_RING>
             struct lock_free_port_t {
-                typedef BUFFER_RING::EVENT_SET EVENT_SET;
-
                 const uint64_t m_retries_serialize = 1;
 
-                std::atomic<typename BUFFER_RING::buffer_t*> m_last_used;
+                std::atomic<typename BUFFER_RING::BUFFER*> m_last_used;
                 std::atomic<uint8_t*> m_free;
                 std::atomic_uint64_t m_dirty_buffer_counter = 0; // incremented every time a buffer is signaled
 
                 std::atomic_int_fast64_t m_in_use = 0; // increments each time a thread is about to write to the buffer, decrements when write is done
 
-                lock_free_port_t(BUFFER_RING& ring, const uint64_t retries_serialize)
+                lock_free_port_t(BUFFER_RING::BUFFER* first_to_use, const uint64_t retries_serialize)
                 : m_retries_serialize(retries_serialize) {
-                    m_last_used = ring.get_first();
-                    m_free = m_last_used.load()->m_header.m_first_available;
+                    m_last_used = first_to_use;
+                    m_free = first_to_use->m_first_available;
                 }
 
                 template <typename SERIALIZED, typename... Args>
-                bool put(Args&&... serialized_args) {
+                bool put(Args&&... serialized_args) noexcept {
                     // Multiple threads runs this function,
                     // simultaneously writing a serialized event
                     // into some area which is in exclusive access by one single thread.
@@ -187,7 +179,7 @@ namespace neutrino
                             // and the current thread is "late" thread.
                             // It's time to look up for another buffer
 
-                            auto* my_buffer = m_last_used.load(std::memory_order::memory_order_consume);
+                            auto* my_buffer = m_last_used.load();
                             auto* next = my_buffer->next_available();
                             if(next == my_buffer) {
                                 // same buffer returned means no buffers available at the moment, drop the event
@@ -207,7 +199,7 @@ namespace neutrino
                         // "early" and "edge" thread may reach this point
                         if(m_free.compare_exchange_strong(my_reserved_begins, my_reserved_ends)) {
 
-                            auto* my_buffer = m_last_used.load(std::memory_order::memory_order_consumed);
+                            auto* my_buffer = m_last_used.load();
 
                             //continue here with additional check using atomic event counter
                             //to handle the possibility two threads update m_free with exact same values
@@ -230,7 +222,7 @@ namespace neutrino
                             // - there is exactly one range my_reserved_begins < hi_water_mark < my_reserved_ends
                             //   and exactly one thread associated with this range
                             // wait for other "early" threads to finish writing and mark dirty
-                            while(m_in_use.load(std::memory_order::memory_order_consume) != 0) {
+                            while(m_in_use.load() != 0) {
                                 continue;
                             }
                             // notify consumer about this buffer
@@ -241,7 +233,7 @@ namespace neutrino
 
                             return true; // "edge" thread exit
                         }
-                    } while(--retries)
+                    } while(--retries);
 
                     return false;
                 }

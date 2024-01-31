@@ -12,7 +12,7 @@ initializer_memfd_t::~initializer_memfd_t()
   munmap(m_rptr, m_bytes);
 }
 
-initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes)
+initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*)
   : m_is_consumer(true), m_bytes(buffer_bytes)
 {
   m_fd = memfd_create("initializer_memfd_t::buffer_t", MFD_ALLOW_SEALING);

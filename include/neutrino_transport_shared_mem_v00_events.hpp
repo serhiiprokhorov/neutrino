@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint> 
+#include <algorithm>
 
 #include "neutrino_types.h"
 
@@ -41,7 +42,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CHECKPOINT, ne, sid, eid) {}
-          static constexpr std::size_t bytes = sizeof(event_base_t);
+          static constexpr std::size_t bytes() { return sizeof(event_base_t); };
         };
 
         struct event_context_enter_t : public event_base_t {
@@ -50,7 +51,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_ENTER, ne, sid, eid) {}
-          static constexpr std::size_t bytes = sizeof(event_base_t);
+          static constexpr std::size_t bytes() { return sizeof(event_base_t); };
         };
 
         struct event_context_leave_t : public event_base_t {
@@ -59,7 +60,7 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_LEAVE, ne, sid, eid) {}
-          static constexpr std::size_t bytes = sizeof(event_base_t);
+          static constexpr std::size_t bytes() { return sizeof(event_base_t); };
         };
 
         struct event_context_exception_t : public event_base_t {
@@ -68,11 +69,12 @@ namespace neutrino
             const neutrino_stream_id_t& sid,
             const neutrino_event_id_t& eid
           ) : event_base_t(EVENT::CONTEXT_EXCEPTION, ne, sid, eid) {}
-          static constexpr std::size_t bytes = sizeof(event_base_t);
+          static constexpr std::size_t bytes() { return sizeof(event_base_t); };
         };
 
-        static constexpr std::size_t biggest_event_size_bytes = 
-          std::max({event_checkpoint_t::bytes, event_context_enter_t::bytes, event_context_leave_t::bytes, event_context_exception_t::bytes});
+        static constexpr std::size_t biggest_event_size_bytes() { 
+          return std::max({event_checkpoint_t::bytes(), event_context_enter_t::bytes(), event_context_leave_t::bytes(), event_context_exception_t::bytes()});
+        }
       };
 
     }

@@ -9,6 +9,8 @@
 #include <thread>
 #include <cassert>
 
+#include "neutrino_errors.hpp"
+
 namespace neutrino
 {
     /// @brief a producer generates events and a consumer reads those events;
@@ -31,103 +33,141 @@ namespace neutrino
         /// This helps to reduce the number of dropped events in case of intermittent consumer's slow down.
         namespace shared_memory
         {
-            /// @brief a ring of shared buffers;
-            /// @tparam SHARED_HEADER provides low level functions/data types to operate shared memory
-            template <typename _SHARED_HEADER, typename EVENT_SET>
-            struct buffers_ring_t {
+            /// @brief describes a range of bytes with layout: {SHARED_HEADER} {first available} ... {high water mark} ... {end}
+            template <typename _SHARED_HEADER, typename _EVENT_SET>
+            struct buffer_t final
+            {
                 typedef _SHARED_HEADER SHARED_HEADER;
-                typedef EVENT_SET _EVENT_SET;
+                typedef _EVENT_SET EVENT_SET;
 
-                /// @brief ring helper struct, also exposes func requirements to SHARED_HEADER template
-                struct buffer_t final
-                {
-                    std::unique_ptr<SHARED_HEADER> const m_header = nullptr;
-                    uint8_t* const m_first_available = nullptr;
-                    uint8_t* const m_end = nullptr;
-                    uint8_t* const m_hi_water_mark = nullptr;
-                    buffer_t* m_next = nullptr; // ptr to the next available buffer
-
-                    buffer_t(std::unique_ptr<SHARED_HEADER>&& header, const std::size_t bytes_available)
-                        : m_header(std::move(header))
-                        , m_first_available(reinterpret_cast<uint8_t*>(m_header) + sizeof(SHARED_HEADER))
-                        , m_end(reinterpret_cast<uint8_t*>(m_header) + bytes_available)
-                        , m_hi_water_mark(m_end - EVENT_SET::biggest_event_size_bytes)
-                    {
-                    }
-
-                    static constexpr std::size_t smallest_bytes = sizeof(SHARED_HEADER) + EVENT_SET::biggest_event_size_bytes;
-
-                    ~buffer_t() = default;
-
-                    /// @brief look up for the next available buffer
-                    /// @return pointer to the buffer; 
-                    /// @warning caller is responsible to validate if the buffer is actually free
-                    buffer_t* next_available() {
-                        // lookup next avail buffer in the ring and update m_available to use it with next message
-                        // when no buffers are available ->  and its time to ignore message
-                        auto* next = m_next;
-                        while(!next->is_clean() && next != this) {
-                            next = next -> m_next;
-                        }
-                        // NOTE: in case no buffers are available (consumer is chocked) 
-                        // next will point to the same buffer the search started with (i.e. this)
-                        return next;
-                    }
-
+                static constexpr auto min_size() { 
+                    return 
+                        EVENT_SET::biggest_event_size_bytes() + 
+                        SHARED_HEADER::reserve_bytes;
                 };
 
-                /// @brief creates buffers ring on top of a given shared memory block using SHARED_HEADER metadata
-                template <typename INITIALIZER_PTR>
-                buffers_ring_t(INITIALIZER_PTR&& memory, std::size_t cc_buffers) 
-                : m_memory(std::forward<INITIALIZER_PTR>(memory)) {
+                uint8_t* const m_start;
+                uint8_t* const m_first_available;
+                uint8_t* const m_end;
+                uint8_t* const m_hi_water_mark;
+                buffer_t* m_next = nullptr; // ptr to the next available buffer
+
+                buffer_t(
+                    uint8_t* start,
+                    const std::size_t size
+                ): 
+                    m_start(start),
+                    m_first_available(start + SHARED_HEADER::reserve_bytes),
+                    m_end(start + size),
+                    m_hi_water_mark(start + size - EVENT_SET::biggest_event_size_bytes())
+                {
+                }
+
+                /// @brief look up for the next available buffer
+                /// @return pointer to the buffer; 
+                /// @warning caller is responsible to validate if the buffer is actually free
+                buffer_t* next_available() noexcept {
+                    // lookup next avail buffer in the ring and update m_available to use it with next message
+                    // when no buffers are available ->  and its time to ignore message
+                    auto* next = m_next;
+                    while(!SHARED_HEADER::is_clean(next->m_start) && next != this) {
+                        next = next -> m_next;
+                    }
+                    // NOTE: in case no buffers are available (consumer is chocked) 
+                    // next will point to the same buffer the search started with (i.e. this)
+                    return next;
+                }
+
+            };
+            /// @brief a ring of shared buffers;
+            template <typename _BUFFER>
+            struct buffers_ring_t {
+                typedef _BUFFER BUFFER;
+
+                /// @brief ring of buffers on top of a given shared memory block using SHARED_HEADER metadata
+                buffers_ring_t(
+                    uint8_t* shared_memory_data, 
+                    const std::size_t shared_memory_size_bytes, 
+                    const std::size_t cc_buffers
+                    )
+                {
 
                     if(cc_buffers < 1) {
-                        throw std::runtime_error("buffers_ring_t: cc_buffers < 1");
+                        throw configure::impossible_option_value("buffers_ring_t::cc_buffers must be >= 1");
                     }
 
                     // split the given piece of shared memory into the requested number of buffers
                     // make sure it is enough space to format single buffer as a given SHARED_HEADER
-                    const auto bytes_per_buffer = memory.size() / cc_buffers;
+                    const auto requested_buffer_size_bytes = shared_memory_size_bytes / cc_buffers;
 
-                    if(bytes_per_buffer < buffer_t::smallest_bytes) {
+                    if(requested_buffer_size_bytes < BUFFER::min_size()) {
                         char buf[2000];
                         snprintf(buf, sizeof(buf) - 1, 
-                            "buffers_ring_t: bytes_per_buffer=%lld < buffer_t::smallest_bytes(%lld)", 
-                                bytes_per_buffer, buffer_t::smallest_bytes);
-                        throw std::runtime_error( buf );
+                            "buffers_ring_t too many buffers: "
+                            "shared memory size=%lld by cc_buffers=%lld is bytes=%lld: too small, less than buffer min_size_bytes(%lld)", 
+                                shared_memory_size_bytes, cc_buffers, requested_buffer_size_bytes, BUFFER::min_size());
+                        throw configure::impossible_option_value(buf);
                     }
 
+                    // early reservation + inplace ctor guarantee no further reallocations
                     m_buffers.reserve(cc_buffers);
 
-                    uint8_t * start = memory.data();
-                    uint8_t * end = start + memory.size();
+                    // each buffer must be aligned according to platform;
+                    // make sure buffer's size is enough to include integer number of align intervals
+                    // make each buffer bigger by exact number of bytes
+                    const auto alignment = alignof(max_align_t);
+                    auto buffer_size_bytes_aligned = requested_buffer_size_bytes;
+                    if( const auto rem = buffer_size_bytes_aligned % alignment ) {
+                        // rem shows how many bytes the buffer includes in extra over alignment interval
+                        // increase buffer's size by exact number of bytes to fix one more alignment interval
+                        // this may cause less number of buffers to be allocated
+                        buffer_size_bytes_aligned += (alignment - rem);
+                    }
 
-                    // the deleter below helps call SHARED_HEADER::destroy for consumer app only
-                    // it seems logical to simply keep is_consumer inside SHARED_HEADER
-                    // but it can't since this struct is shared between consumer and producer apps
-                    auto deleter = memory.m_is_consumer 
-                        ? [](SHARED_HEADER* ptr) { m_header->destroy(); } // destroy if consumer
-                        : [](SHARED_HEADER* ptr) {}; // do nothing if producer
+                    uint8_t * end = shared_memory_data + shared_memory_size_bytes;
 
-                    while(start < end)
+                    while(shared_memory_data < end)
                     {
                         m_buffers.emplace_back( 
-                            std::unique_ptr<SHARED_HEADER>(new (start) SHARED_HEADER(memory.m_is_consumer), deleter)
-                            , bytes_per_buffer 
-                            );
-                        m_buffers.back()->m_header->init();
-                        start += bytes_per_buffer;
+                            shared_memory_data, 
+                            buffer_size_bytes_aligned);
+
+                        shared_memory_data += buffer_size_bytes_aligned;
                     };
+
+                    if(!m_buffers.empty() && m_buffers.back().m_end > end) {
+                        // this last buffer sticks out past the end of a given interval
+                        // remove it
+                        m_buffers.pop_back(); 
+                    }
+
+                    if(m_buffers.empty()) {
+                        char buf[2000];
+                        snprintf(buf, sizeof(buf) - 1, 
+                            "buffers_ring_t can't allocate buffers: "
+                            "shared memory size=%lld, cc_buffers=%lld, buffer bytes=%lld, alignment %lld, after alignment is %lld", 
+                                shared_memory_size_bytes, cc_buffers, requested_buffer_size_bytes, alignment, buffer_size_bytes_aligned);
+                        throw configure::impossible_option_value(buf);
+                    }
 
                     // NOTE: this func uses raw pointers, no further reallocations are allowed 
                     make_ring();
                 }
 
-                buffer_t* get_first() { return &m_buffers.front(); }
+                BUFFER* get_first() { return &m_buffers.front(); }
+
+                void init_all() {
+                    for(auto& b : m_buffers)
+                        BUFFER::SHARED_HEADER::init(b.m_start);
+                }
+
+                void destroy_all() {
+                    for(auto& b : m_buffers)
+                        BUFFER::SHARED_HEADER::destroy(b.m_start);
+                }
 
             private:
-                std::unique_ptr<typename INITIALIZER> m_memory;
-                std::vector<buffer_t> m_buffers;
+                std::vector<BUFFER> m_buffers;
 
                 void make_ring() 
                 {
@@ -143,7 +183,7 @@ namespace neutrino
                         return;
                     }
                     
-                    buffer_t* prev_buffer = &(m_buffers.front());
+                    BUFFER* prev_buffer = &(m_buffers.front());
                     for( auto it = m_buffers.begin() + 1; it != m_buffers.end(); ++it ) {
                         prev_buffer->m_next = &(*it);
                         prev_buffer = prev_buffer->m_next;
