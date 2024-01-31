@@ -98,7 +98,8 @@ namespace neutrino
                 bool put(Args&&... serialized_args) noexcept {
                     std::lock_guard l(m_mutex);
                     // when lock is acquired, call synch version
-                    return m_synchronized.put(serialized_args...);
+                    //return m_synchronized.put<SERIALIZED>(std::forward<Args>(serialized_args)...);
+                    return m_synchronized.template put<SERIALIZED>(serialized_args...);
                 }
             };
 
