@@ -173,9 +173,9 @@ namespace neutrino
                         // optimistically reserve the range [my_reserved_begins,my_reserved_ends)
                         // compare_exchange_strong will confirm or reject that
                         auto my_reserved_begins = m_free.load();
-                        auto my_reserved_ends = my_reserved_begins + SERIALIZED::bytes;
+                        auto my_reserved_ends = my_reserved_begins + SERIALIZED::bytes();
 
-                        if(my_reserved_begins >= m_last_used->m_header.m_hi_watermark) {
+                        if(my_reserved_begins >= m_last_used.load()->m_hi_water_mark) {
                             // hi water mark means the current buffer is full 
                             // and the current thread is "late" thread.
                             // It's time to look up for another buffer
@@ -215,7 +215,7 @@ namespace neutrino
                             m_in_use--;
 
                             // this condition filters away "early" threads, they can exit now
-                            if(my_reserved_ends < m_last_used->m_header.m_hi_watermark)
+                            if(my_reserved_ends < my_buffer->m_hi_water_mark)
                                 return true; 
 
                             // NOTE: there could be only one single thread ("edge" thread) at this point 
@@ -227,8 +227,9 @@ namespace neutrino
                                 continue;
                             }
                             // notify consumer about this buffer
-                            my_buffer->dirty(
-                                my_reserved_ends-m_last_used->m_header.m_first_available, 
+                            BUFFER_RING::BUFFER::SHARED_HEADER::dirty(
+                                my_buffer->m_start,
+                                my_reserved_ends-my_buffer->m_first_available, 
                                 ++m_dirty_buffer_counter
                             );
 
