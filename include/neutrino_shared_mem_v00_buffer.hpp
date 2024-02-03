@@ -7,7 +7,7 @@
 #include <neutrino_shared_mem_initializer_linux.hpp>
 #include <neutrino_transport_shared_mem_buffer.hpp>
 #include <neutrino_transport_shared_mem_v00_events.hpp>
-#include "shared_mem_v00_header.hpp"
+#include <neutrino_shared_mem_v00_header.hpp>
 
 namespace neutrino
 {

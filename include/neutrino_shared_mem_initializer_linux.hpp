@@ -15,15 +15,6 @@ namespace neutrino
       /// uses memfd_* family of functions to create/open in-memory file and mmap this file 
       struct initializer_memfd_t final
       {
-        struct errno_error : public std::runtime_error
-        {
-          int errno_captured;
-          std::source_location location_captured;
-          errno_error(std::source_location loc, int err, const char* what)
-          : errno_captured(err), location_captured(loc), std::runtime_error(what)
-          {}
-        };
-
         initializer_memfd_t(std::size_t buffer_bytes, const char*); /// consumer uses this ctor to create a shared memory
         initializer_memfd_t(unsigned int fd); /// producer uses this ctor to connect to already existing shared memory (fd is inherited from consumer)
         ~initializer_memfd_t();

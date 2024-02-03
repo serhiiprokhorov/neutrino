@@ -5,18 +5,7 @@
 
 #include <string_view>
 
-#include <neutrino_shared_mem_initializer_linux.hpp>
-
-#include "shared_mem_v00_header.hpp"
-#include "shared_mem_v00_buffer.hpp"
-
-#include <neutrino_transport_shared_mem_v00_events.hpp>
-#include <neutrino_transport_shared_mem_buffer.hpp>
-#include <neutrino_transport_shared_mem_port.hpp>
-
-#include <neutrino_transport.hpp>
-
-#include <neutrino_producer.h>
+#include <neutrino_shared_mem_v00_port_synchronized.hpp>
 
 namespace
 {

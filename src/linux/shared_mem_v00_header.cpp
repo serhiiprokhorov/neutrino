@@ -7,7 +7,7 @@
 #include <semaphore.h>
 
 #include <neutrino_errors.hpp>
-#include "shared_mem_v00_header.hpp"
+#include <neutrino_shared_mem_v00_header.hpp>
 
 
 namespace{

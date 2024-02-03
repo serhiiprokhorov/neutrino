@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #include <neutrino_errors.hpp>
-#include "shared_mem_v00_buffer.hpp"
+#include <neutrino_shared_mem_v00_buffer.hpp>
 
 namespace neutrino::transport::shared_memory {
 

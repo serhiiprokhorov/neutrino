@@ -21,6 +21,15 @@ namespace neutrino
     }
     namespace os 
     {
+        struct errno_error : public std::runtime_error
+        {
+          int errno_captured;
+          std::source_location location_captured;
+          errno_error(std::source_location loc, int err, const char* what)
+          : errno_captured(err), location_captured(loc), std::runtime_error(what)
+          {}
+        };
+
         struct errno_error : public std::runtime_error {
             errno_error(const char* where) : std::runtime_error(std::string("errno=").append(std::to_string(errno)).append(where)) {}
         };
