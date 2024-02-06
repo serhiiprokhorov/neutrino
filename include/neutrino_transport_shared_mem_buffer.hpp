@@ -93,7 +93,7 @@ namespace neutrino
                 {
 
                     if(cc_buffers < 1) {
-                        throw configure::impossible_option_value("buffers_ring_t::cc_buffers must be >= 1");
+                        throw configure::impossible_option_value(std::source_location::current(), "buffers_ring_t::cc_buffers must be >= 1");
                     }
 
                     // split the given piece of shared memory into the requested number of buffers
@@ -106,7 +106,7 @@ namespace neutrino
                             "buffers_ring_t too many buffers: "
                             "shared memory size=%lld by cc_buffers=%lld is bytes=%lld: too small, less than buffer min_size_bytes(%lld)", 
                                 shared_memory_size_bytes, cc_buffers, requested_buffer_size_bytes, BUFFER::min_size());
-                        throw configure::impossible_option_value(buf);
+                        throw configure::impossible_option_value(std::source_location::current(), buf);
                     }
 
                     // early reservation + inplace ctor guarantee no further reallocations
@@ -147,7 +147,7 @@ namespace neutrino
                             "buffers_ring_t can't allocate buffers: "
                             "shared memory size=%lld, cc_buffers=%lld, buffer bytes=%lld, alignment %lld, after alignment is %lld", 
                                 shared_memory_size_bytes, cc_buffers, requested_buffer_size_bytes, alignment, buffer_size_bytes_aligned);
-                        throw configure::impossible_option_value(buf);
+                        throw configure::impossible_option_value(std::source_location::current(), buf);
                     }
 
                     // NOTE: this func uses raw pointers, no further reallocations are allowed 

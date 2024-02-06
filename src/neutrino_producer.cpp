@@ -67,16 +67,16 @@ void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes)
                     if(cfg_view.find("sync=lockfree") != std::string_view::npos) {
                         neutrino::producer::configure::shared_mem_v00_lockfree_linux(cfg_view);
                     } else {
-                        throw neutrino::configure::unsupported_option("sync=...");
+                        throw neutrino::configure::unsupported_option(std::source_location::current(), "sync=...");
                     } 
                 } else {
-                    throw neutrino::configure::unsupported_option("version=...");
+                    throw neutrino::configure::unsupported_option(std::source_location::current(), "version=...");
                 }
             } else {
-                throw neutrino::configure::unsupported_option("platform=...");
+                throw neutrino::configure::unsupported_option(std::source_location::current(), "platform=...");
             }
         }
-        throw neutrino::configure::unsupported_option("transport=...");
+        throw neutrino::configure::unsupported_option(std::source_location::current(), "transport=...");
     }
     catch(const std::exception& e)
     {

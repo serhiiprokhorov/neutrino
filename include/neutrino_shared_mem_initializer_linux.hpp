@@ -23,7 +23,9 @@ namespace neutrino
         uint8_t* data() { return m_rptr; }
         /// @return a size in bytes of a shared memory
         std::size_t size() const { return m_bytes; }
-          
+
+        void set_env_var_fd();
+
         unsigned int m_fd; /// fd of memfd
         uint8_t* m_rptr; /// mmap shared mem ptr
         std::size_t m_bytes; /// size in bytes of a single buffer

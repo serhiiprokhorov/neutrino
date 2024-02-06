@@ -40,7 +40,7 @@ void v00_shared_header_t::init(uint8_t* at)
 {
   auto* impl = reinterpret_cast<v00_shared_header_impl_t*>(at);
   if( sem_init(&impl->m_ready, 1 /* this sem is shared between processes */, 1) != 0 ) {
-    throw os::errno_error(__FUNCTION__);
+    throw os::errno_error(std::source_location::current(), "sem_init");
   }
 }
 

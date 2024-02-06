@@ -33,3 +33,12 @@ does not compile due to UT changes
 * CLI with self test
 * CONSUMER_AGGREGATOR executable
 * CONSUMER_OVERWATCH backend
+
+---
+## Known issues
+
+###  /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.32' not found
+
+    sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+    sudo apt-get update
+    sudo apt-get install --only-upgrade libstdc++6

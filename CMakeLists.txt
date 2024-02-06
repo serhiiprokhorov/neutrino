@@ -68,6 +68,8 @@ target_include_directories(producer_mt_lockfree_lib PRIVATE ${PROJECT_SOURCE_DIR
 
 find_package(PkgConfig)
 pkg_search_module(GTEST REQUIRED gtest_main)
+enable_testing()
+include(GoogleTest)
 
 add_executable(ut_st)
 add_executable(ut_mt_exclusive)
@@ -79,7 +81,7 @@ target_include_directories(ut_mt_lockfree PRIVATE ${PROJECT_SOURCE_DIR}/include 
 
 target_sources(ut_st PRIVATE ut/gtest_main.cpp)
 target_sources(ut_st PRIVATE ut/shared_mem_v00_synchronized_ut.cpp)
-target_link_libraries(ut_st PRIVATE ${GTEST_LDFLAGS})
+target_link_libraries(ut_st PRIVATE ${GTEST_LDFLAGS} producer_st_lib)
 target_compile_options(ut_st PRIVATE ${GTEST_CFLAGS})
 
 target_sources(ut_mt_exclusive PRIVATE ut/gtest_main.cpp)
@@ -92,7 +94,10 @@ target_sources(ut_mt_lockfree PRIVATE ut/shared_mem_v00_lockfree_ut.cpp)
 target_link_libraries(ut_mt_lockfree PRIVATE ${GTEST_LDFLAGS})
 target_compile_options(ut_mt_lockfree PRIVATE ${GTEST_CFLAGS})
 
-enable_testing()
-add_test(ut_st_test ut_st)
-add_test(ut_mt_exclusive_test ut_mt_exclusive)
-add_test(ut_mt_lockfree_test ut_mt_lockfree)
+gtest_discover_tests(ut_st)
+gtest_discover_tests(ut_mt_exclusive)
+gtest_discover_tests(ut_mt_lockfree)
+
+#add_test(ut_st_test ut_st)
+#add_test(ut_mt_exclusive_test ut_mt_exclusive)
+#add_test(ut_mt_lockfree_test ut_mt_lockfree)
