@@ -38,7 +38,8 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*)
 
   m_rptr = reinterpret_cast<uint8_t*>(rptr);
 
-  close(m_fd);
+  // producer uses it
+  //close(m_fd);
 }
 
 initializer_memfd_t::initializer_memfd_t(unsigned int fd)

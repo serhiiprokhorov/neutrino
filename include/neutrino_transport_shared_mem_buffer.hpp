@@ -166,6 +166,8 @@ namespace neutrino
                         BUFFER::SHARED_HEADER::destroy(b.m_start);
                 }
 
+                const std::size_t cc_buffers() const { return m_buffers.size(); }
+
             private:
                 std::vector<BUFFER> m_buffers;
 

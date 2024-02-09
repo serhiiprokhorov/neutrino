@@ -12,6 +12,7 @@ namespace neutrino
       /// @brief header or a shared buffer, consumer and producer access processes
       struct v00_shared_header_t
       {
+        /// @brief number of bytes to reserve for platform-specific header in a shared buffer
         static std::size_t reserve_bytes; 
 
         static void init(uint8_t* at); 

@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <source_location>
 #include <string>
+#include <cstring>
 
 namespace neutrino
 {
@@ -31,7 +32,7 @@ namespace neutrino
         struct errno_error : public std::runtime_error
         {
           errno_error(std::source_location loc, const char* what)
-          : std::runtime_error(to_string(loc).append(" errno:").append(std::to_string(errno)).append(" ").append(what)) {}
+          : std::runtime_error(to_string(loc).append(" errno:\"").append((const char*)strerror(errno)).append("\":").append(std::to_string(errno)).append(" ").append(what)) {}
         };
     }
 }

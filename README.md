@@ -35,6 +35,12 @@ does not compile due to UT changes
 * CONSUMER_OVERWATCH backend
 
 ---
+## VSCode
+
+### setup ctest debug
+
+https://github.com/microsoft/vscode-cmake-tools/blob/main/docs/debug-launch.md#debugging-tests
+
 ## Known issues
 
 ###  /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.32' not found
@@ -42,3 +48,5 @@ does not compile due to UT changes
     sudo add-apt-repository ppa:ubuntu-toolchain-r/test
     sudo apt-get update
     sudo apt-get install --only-upgrade libstdc++6
+
+### 
