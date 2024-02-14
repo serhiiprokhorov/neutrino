@@ -13,18 +13,23 @@ namespace neutrino
     namespace configure
     {
         struct unsupported_option : public std::runtime_error {
-            unsupported_option(std::source_location loc, std::string option) 
+            unsupported_option(const std::source_location loc, std::string option) 
             : std::runtime_error(to_string(loc).append(" unsupported option:").append(option)) {}
         };
 
         struct missing_option : public std::runtime_error {
-            missing_option(std::source_location loc, std::string option) 
+            missing_option(const std::source_location loc, std::string option) 
             : std::runtime_error(to_string(loc).append(" missing option:").append(option)) {}
         };
 
         struct impossible_option_value : public std::runtime_error {
-            impossible_option_value(std::source_location loc, std::string option) 
-            : std::runtime_error(to_string(loc).append(" impossible option:").append(option)) {}
+            impossible_option_value(const std::source_location loc, std::string option) 
+            : std::runtime_error(to_string(loc).append(" impossible value of option:").append(option)) {}
+        };
+
+        struct not_a_number_option_value : public impossible_option_value {
+            not_a_number_option_value(const std::source_location loc, std::string option)
+            : impossible_option_value(loc, std::string("format \"").append(option).append("{value},\"")) {}
         };
     }
     namespace os 

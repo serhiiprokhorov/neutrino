@@ -18,8 +18,8 @@ struct producer_consumer_buffers_connected : public testing::Test
     const std::size_t m_expected_consumer_size = 10000;
 
     void SetUp() override {
-        m_consumer_memory=init_v00_buffers_ring("process=consumer,size=10000,");
-        m_producer_memory=init_v00_buffers_ring("process=producer");
+        m_consumer_memory=init_v00_buffers_ring("process=consumer,size=10000,buffers=5,");
+        m_producer_memory=init_v00_buffers_ring("process=producer,buffers=5");
     }
 };
 
@@ -33,12 +33,8 @@ TEST_F(when_buffer_configured_as_consumer, then_consumer_data_is_notnull) {
     ASSERT_TRUE(m_consumer_memory.first->data() != nullptr);
 }
 
-TEST_F(when_buffer_configured_as_consumer, then_consumer_fd_is_not_null) {
-    ASSERT_TRUE(m_consumer_memory.first->m_fd > 0);
-}
-
 TEST_F(when_buffer_configured_as_consumer, then_is_consumer_true) {
-    ASSERT_TRUE(m_consumer_memory.first->m_is_consumer);
+    ASSERT_TRUE(m_consumer_memory.first->is_consumer());
 }
 
 struct when_buffer_configured_as_producer : public producer_consumer_buffers_connected {};
@@ -51,19 +47,11 @@ TEST_F(when_buffer_configured_as_producer, then_producer_data_is_notnull) {
     ASSERT_TRUE(m_producer_memory.first->data() != nullptr);
 }
 
-TEST_F(when_buffer_configured_as_producer, then_producer_fd_is_not_null) {
-    ASSERT_TRUE(m_producer_memory.first->m_fd > 0);
-}
-
-//TEST_F(when_buffer_configured_as_producer, then_producer_fd_is_different_than_consumer_fd) {
-//    ASSERT_NE(m_producer_memory.first->m_fd, m_consumer_memory.first->m_fd);
-//}
-
 TEST_F(when_buffer_configured_as_producer, then_is_consumer_false) {
-    ASSERT_FALSE(m_producer_memory.first->m_is_consumer);
+    ASSERT_FALSE(m_producer_memory.first->is_consumer());
 }
 
-struct when_producer_puts_data : public producer_consumer_buffers_connected {
+struct when_data_copied_into_producer_buffer : public producer_consumer_buffers_connected {
     struct producer_to_consumer_message_t
     {
         uint8_t x1 = 0;
@@ -91,7 +79,7 @@ struct when_producer_puts_data : public producer_consumer_buffers_connected {
 
 };
 
-TEST_F(when_producer_puts_data, then_consumer_sees_same_data) {
+TEST_F(when_data_copied_into_producer_buffer, then_consumer_buffer_contains_this_data) {
     auto* consumer_data = reinterpret_cast<producer_to_consumer_message_t*>(m_consumer_memory.first->data());
 
     for(std::size_t cc = 0; cc < m_expected_producer_message.size(); cc++) {

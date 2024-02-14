@@ -11,9 +11,12 @@ namespace neutrino::transport::shared_memory
 initializer_memfd_t::~initializer_memfd_t()
 {
   munmap(m_rptr, m_bytes);
+  if(m_fd != -1) {
+    close(m_fd);
+  }
 }
 
-initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*)
+initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*, std::function<void(unsigned int)> with_fd)
   : m_is_consumer(true), m_bytes(buffer_bytes)
 {
   m_fd = memfd_create("initializer_memfd_t::buffer_t", MFD_ALLOW_SEALING);
@@ -40,6 +43,8 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*)
   }
 
   m_rptr = reinterpret_cast<uint8_t*>(rptr);
+
+  with_fd(m_fd);
 }
 
 initializer_memfd_t::initializer_memfd_t(unsigned int fd)
@@ -47,7 +52,7 @@ initializer_memfd_t::initializer_memfd_t(unsigned int fd)
 {
   // fd exists but the size is unknown
   errno = 0;
-  auto off = lseek(fd, 0, SEEK_END);
+  auto off = lseek(m_fd, 0, SEEK_END);
   if(errno != 0) {
     throw neutrino::os::errno_error(std::source_location::current(), "lseek");
   }
@@ -67,12 +72,6 @@ initializer_memfd_t::initializer_memfd_t(unsigned int fd)
 
   m_rptr = reinterpret_cast<uint8_t*>(rptr);
 
-  // TODO: normalize fd between producer and consumer
-  //close(m_fd);
-
 }
 
-void initializer_memfd_t::set_env_var_fd()
-{
-}
 }
