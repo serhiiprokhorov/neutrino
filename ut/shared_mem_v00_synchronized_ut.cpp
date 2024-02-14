@@ -19,7 +19,7 @@ void shared_mem_v00_lockfree_linux(std::basic_string_view<char, std::char_traits
 }
 }
 
-struct SynchronizedSequenceEvents : public testing::Test
+struct when_producer_generates_event_synchronized : public testing::Test
 {
     const std::size_t expected_checkpoint_offset = v00_shared_header_t::reserve_bytes;
     const neutrino_nanoepoch_t expected_ne_checkpoint {1};
@@ -109,7 +109,7 @@ struct SynchronizedSequenceEvents : public testing::Test
     }
 };
 
-TEST_F(SynchronizedSequenceEvents, checkpoint_is_correct) {
+TEST_F(when_producer_generates_event_synchronized, then_event_checkpoint_is_correct) {
     const auto* actual_checkpoint = reinterpret_cast<v00_events_set_t::event_checkpoint_t*>(m_memory.data() + expected_checkpoint_offset);
 
     EXPECT_EQ(actual_checkpoint->m_ev, v00_events_set_t::EVENT::CHECKPOINT);
@@ -118,7 +118,7 @@ TEST_F(SynchronizedSequenceEvents, checkpoint_is_correct) {
     EXPECT_EQ(actual_checkpoint->m_eid.v, expected_eid_checkpoint.v);
 }
 
-TEST_F(SynchronizedSequenceEvents, context_enter_is_correct) {
+TEST_F(when_producer_generates_event_synchronized, then_event_context_enter_is_correct) {
     const auto* actual_context_enter = reinterpret_cast<v00_events_set_t::event_checkpoint_t*>(m_memory.data() + expected_context_enter_offset);
 
     EXPECT_EQ(actual_context_enter->m_ev, v00_events_set_t::EVENT::CONTEXT_ENTER);
@@ -127,7 +127,7 @@ TEST_F(SynchronizedSequenceEvents, context_enter_is_correct) {
     EXPECT_EQ(actual_context_enter->m_eid.v, expected_eid_context_enter.v);
 }
 
-TEST_F(SynchronizedSequenceEvents, context_leave_is_correct) {
+TEST_F(when_producer_generates_event_synchronized, then_event_context_leave_is_correct) {
     const auto* actual_context_leave = reinterpret_cast<v00_events_set_t::event_checkpoint_t*>(m_memory.data() + expected_context_leave_offset);
 
     EXPECT_EQ(actual_context_leave->m_ev, v00_events_set_t::EVENT::CONTEXT_LEAVE);
@@ -136,7 +136,7 @@ TEST_F(SynchronizedSequenceEvents, context_leave_is_correct) {
     EXPECT_EQ(actual_context_leave->m_eid.v, expected_eid_context_leave.v);
 }
 
-TEST_F(SynchronizedSequenceEvents, context_exception_is_correct) {
+TEST_F(when_producer_generates_event_synchronized, then_event_context_exception_is_correct) {
     const auto* actual_context_exception = reinterpret_cast<v00_events_set_t::event_checkpoint_t*>(m_memory.data() + expected_context_exception_offset);
 
     EXPECT_EQ(actual_context_exception->m_ev, v00_events_set_t::EVENT::CONTEXT_EXCEPTION);

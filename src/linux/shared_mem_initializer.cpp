@@ -30,16 +30,16 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*)
     throw neutrino::os::errno_error(std::source_location::current(), "fcntl seals");
   }
 
-  /* Map shared memory object */
+  // Map shared memory object
+  // NOTE: mmap adds file reference and some docs recommends to close m_fd after that, 
+  //       but in this app it can not be closed as it going to be shared with producer process 
+  // NOTE: memfd_create mutually adds MAP_ANONYMOUS
   void* rptr = mmap(NULL, buffer_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
   if (rptr == MAP_FAILED) {
     throw neutrino::os::errno_error(std::source_location::current(), "mmap");
   }
 
   m_rptr = reinterpret_cast<uint8_t*>(rptr);
-
-  // producer uses it
-  //close(m_fd);
 }
 
 initializer_memfd_t::initializer_memfd_t(unsigned int fd)
@@ -58,7 +58,8 @@ initializer_memfd_t::initializer_memfd_t(unsigned int fd)
 
   m_bytes = static_cast<std::size_t>(off);
 
-  /* Map shared memory object */
+  // Map shared memory object
+  // m_fd comes from consumer process which originally created the shared file
   void * rptr = mmap(NULL, m_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
   if (m_rptr == MAP_FAILED) {
     throw neutrino::os::errno_error(std::source_location::current(), "ftruncate");
@@ -66,7 +67,8 @@ initializer_memfd_t::initializer_memfd_t(unsigned int fd)
 
   m_rptr = reinterpret_cast<uint8_t*>(rptr);
 
-  close(m_fd);
+  // TODO: normalize fd between producer and consumer
+  //close(m_fd);
 
 }
 
