@@ -14,8 +14,8 @@
 namespace neutrino
 {
     /// @brief a producer generates events and a consumer reads those events;
-    /// Assumption "producer never waits": any error to send out event causes producer to drop the event.
-    /// Assumption "hungry consumer": consumer's capacity to process events should exceed producer's,
+    /// Assumption "producer never waits": any error while sending out an event causes producer to drop the event.
+    /// Assumption "hungry consumer": consumer's capacity to process events exceeds producer's,
     /// with rare cases of intermittent consumer's slow downs.
     namespace transport
     {
