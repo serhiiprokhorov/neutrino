@@ -56,7 +56,7 @@ static void neutrino_flush_impl()
 
 namespace neutrino::producer::configure
 {
-void shared_mem_v00_lockfree_linux(const std::string_view& cfg_view)
+void shared_mem_v00_lockfree(const std::string_view& cfg_view)
 {
     // TODO: from cfg
     const uint64_t lock_free_reps = 100;

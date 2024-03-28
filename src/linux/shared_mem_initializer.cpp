@@ -16,6 +16,9 @@ initializer_memfd_t::~initializer_memfd_t()
   }
 }
 
+// consumer-oriented constructor
+// creates and resizes memfd file
+// mmap it
 initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*, std::function<void(unsigned int)> with_fd)
   : m_is_consumer(true), m_bytes(buffer_bytes)
 {
@@ -23,7 +26,6 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*, 
   if (m_fd == -1) {
     throw neutrino::os::errno_error(std::source_location::current(), "memfd_create");
   }
-
 
   if (ftruncate(m_fd, buffer_bytes) == -1) {
     throw neutrino::os::errno_error(std::source_location::current(), "ftruncate");
@@ -47,6 +49,8 @@ initializer_memfd_t::initializer_memfd_t(std::size_t buffer_bytes, const char*, 
   with_fd(m_fd);
 }
 
+// producer oriented constructor
+// reads given fd and mmap the memory associated with it
 initializer_memfd_t::initializer_memfd_t(unsigned int fd)
   : m_is_consumer(false), m_fd(fd)
 {

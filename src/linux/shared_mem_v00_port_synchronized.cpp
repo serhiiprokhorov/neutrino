@@ -57,7 +57,7 @@ static void neutrino_flush_impl()
 
 namespace neutrino::producer::configure
 {
-void shared_mem_v00_synchronized_linux(const std::string_view& cfg_view)
+void shared_mem_v00_synchronized(const std::string_view& cfg_view)
 {
     port = std::make_unique<port_ex_t>(transport::shared_memory::init_v00_buffers_ring(cfg_view));
 

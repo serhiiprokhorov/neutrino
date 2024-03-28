@@ -10,8 +10,6 @@ extern "C"
 #endif
     /* C API : enables C lang integration by duplicating consumer interface */
 
-    void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes);
-
     /*TODO: errors as retvals?*/
 
     extern void (*neutrino_producer_shutdown)(void);
@@ -56,9 +54,10 @@ namespace neutrino
     {
         namespace configure
         {
-            void shared_mem_v00_synchronized_linux(const std::string_view&);
-            void shared_mem_v00_exclusive_linux(const std::string_view&);
-            void shared_mem_v00_lockfree_linux(const std::string_view&);
+            void from_env_variables();
+            // void shared_mem_v00_synchronized(const std::string_view&);
+            // void shared_mem_v00_exclusive(const std::string_view&);
+            // void shared_mem_v00_lockfree(const std::string_view&);
         }
         namespace helpers
         {

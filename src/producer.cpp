@@ -3,10 +3,14 @@
 #include <stdlib.h>
 #include <iostream>
 
+#include <optional>
+
 #include <string_view>
 
 #include <neutrino_producer.h>
 #include <neutrino_errors.hpp>
+
+#include <../neutrino_config.hpp>
 
 
 extern "C"
@@ -51,37 +55,7 @@ neutrino_nanoepoch_t (*neutrino_nanoepoch)(void) = neutrino_nanoepoch_impl;
 
 void neutrino_producer_startup(const char* cfg, const uint32_t cfg_bytes)
 {
-    const std::string_view cfg_view(cfg, cfg_bytes);
-
-    try
-    {
-        if(cfg_view.find("transport=shared_mem") != std::string_view::npos) {
-            if(cfg_view.find("platform=linux") != std::string_view::npos) {
-                if(cfg_view.find("version=v00") != std::string_view::npos) {
-                    if(cfg_view.find("sync=synchronized") != std::string_view::npos) {
-                        neutrino::producer::configure::shared_mem_v00_synchronized_linux(cfg_view);
-                    } else 
-                    if(cfg_view.find("sync=exclusive") != std::string_view::npos) {
-                        neutrino::producer::configure::shared_mem_v00_exclusive_linux(cfg_view);
-                    } else 
-                    if(cfg_view.find("sync=lockfree") != std::string_view::npos) {
-                        neutrino::producer::configure::shared_mem_v00_lockfree_linux(cfg_view);
-                    } else {
-                        throw neutrino::configure::unsupported_option(std::source_location::current(), "sync=...");
-                    } 
-                } else {
-                    throw neutrino::configure::unsupported_option(std::source_location::current(), "version=...");
-                }
-            } else {
-                throw neutrino::configure::unsupported_option(std::source_location::current(), "platform=...");
-            }
-        }
-        throw neutrino::configure::unsupported_option(std::source_location::current(), "transport=...");
-    }
-    catch(const std::exception& e)
-    {
-        std::cerr << e.what() << '\n';
-    }
+    neutrino::configure::producer::from_env_variables();
 }
 
 } // extern "C"

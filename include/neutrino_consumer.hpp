@@ -4,6 +4,14 @@
 
 namespace neutrino
 {
+    namespace consumer
+    {
+        namespace configure
+        {
+            void from_cmd_line_args(int argc, const char* argv[]);
+        }
+    }
+
     // represents basic consumer operation; in use by a consumer implementation and by a consumer proxy created at producer's side
     struct consumer_t
     {

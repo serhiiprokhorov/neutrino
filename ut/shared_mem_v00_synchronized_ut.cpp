@@ -10,12 +10,14 @@ using namespace neutrino::transport::shared_memory;
 
 namespace neutrino::producer::configure
 {
-void shared_mem_v00_exclusive_linux(std::basic_string_view<char, std::char_traits<char> > const&)
+void shared_mem_v00_exclusive(std::basic_string_view<char, std::char_traits<char> > const&)
 {
+    throw std::runtime_error("unexpected shared_mem_v00_exclusive");
 }
 
-void shared_mem_v00_lockfree_linux(std::basic_string_view<char, std::char_traits<char> > const&)
+void shared_mem_v00_lockfree(std::basic_string_view<char, std::char_traits<char> > const&)
 {
+    throw std::runtime_error("unexpected shared_mem_v00_lockfree");
 }
 }
 
